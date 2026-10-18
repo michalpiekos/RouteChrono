@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Route Chrono</string>
+    <string name="brand_name">MMP Systems</string>
+    <string name="tracking_channel_description">Visible whenever %1$s is monitoring or recording journeys</string>
+    <string name="tracking_notification_title">%1$s • %2$s</string>
+    <string name="notifications_required">%1$s only records while its status notification can be shown. Enable notifications, then press Start or enable Automatic recording again.</string>
+</resources>
