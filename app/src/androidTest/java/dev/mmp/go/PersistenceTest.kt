@@ -32,9 +32,7 @@ class PersistenceTest {
         }
     }
 
-    @Test
-    fun migrationPreservesLegacyRawEvidenceAndAcceptsNewPairs() {
-        val name = "migration-${newId()}.db"
+    private fun legacyDatabase(name: String, version: Int): SQLiteDatabase {
         val file = context.getDatabasePath(name)
         file.parentFile!!.mkdirs()
         val schema =
@@ -42,7 +40,7 @@ class PersistenceTest {
                     InstrumentationRegistry.getInstrumentation()
                         .context
                         .assets
-                        .open("dev.mmp.go.Database/1.json")
+                        .open("dev.mmp.go.Database/$version.json")
                         .bufferedReader()
                         .readText()
                 )
@@ -64,15 +62,24 @@ class PersistenceTest {
         }
         val setup = schema.getJSONArray("setupQueries")
         for (i in 0 until setup.length()) old.execSQL(setup.getString(i))
+        old.version = version
+        return old
+    }
+
+    private fun open(name: String) =
+        Room.databaseBuilder(context, Database::class.java, name)
+            .addMigrations(Database.MIGRATION, Database.MIGRATION_3)
+            .build()
+
+    @Test
+    fun migrationPreservesLegacyRawEvidenceAndAcceptsNewPairs() {
+        val name = "migration-${newId()}.db"
+        val old = legacyDatabase(name, 1)
         old.execSQL("INSERT INTO configs VALUES ('old',1,'{legacy:true}')")
         old.execSQL("INSERT INTO sessions VALUES ('session','old',1,2,'manual','finished')")
         old.execSQL("INSERT INTO fixes VALUES (1,'session',0,'raw-evidence')")
-        old.version = 1
         old.close()
-        val db =
-            Room.databaseBuilder(context, Database::class.java, name)
-                .addMigrations(Database.MIGRATION)
-                .build()
+        val db = open(name)
         try {
             assertEquals(1, db.data().legacyFixCount())
             db.openHelper.readableDatabase.query("SELECT payload FROM fixes").use {
@@ -86,6 +93,72 @@ class PersistenceTest {
             db.close()
             context.deleteDatabase(name)
         }
+    }
+
+    @Test
+    fun schemaTwoMigrationKeepsRowsAndAddsSecondEnd() {
+        val name = "migration-${newId()}.db"
+        val old = legacyDatabase(name, 2)
+        old.execSQL("INSERT INTO fixes VALUES (1,'session',0,'raw-evidence')")
+        old.execSQL("INSERT INTO endpoint_pairs VALUES ('p','Pair',0.0,0.0,0.0,0.01,1)")
+        old.execSQL("INSERT INTO journeys VALUES ('j','p','return','automatic',100,5,200,95,'complete')")
+        old.execSQL("INSERT INTO track_points VALUES (7,'j',0.0,0.01,100,5,4.5)")
+        old.close()
+        val db = open(name)
+        try {
+            val dao = db.data()
+            assertEquals(1, dao.legacyFixCount())
+            assertEquals(
+                PairRow("p", "Pair", 0.0, 0.0, 0.0, 0.01, archived = true),
+                dao.pairs().single(),
+            )
+            assertNull(dao.pairs().single().spec().end2)
+            assertEquals(
+                JourneyRow("j", "p", "return", "automatic", 100, 5, 200, 95, "complete"),
+                dao.journey("j"),
+            )
+            assertEquals(listOf(TrackRow(7, "j", 0.0, 0.01, 100, 5, 4.5)), dao.points("j"))
+            val fork = EndpointPair("f", "Fork", Point(0.0, 0.0), Point(0.0, 0.01), Point(0.01, 0.0))
+            dao.pair(PairRow.from(fork))
+            assertEquals(fork, dao.pairs().last().spec())
+            dao.journey(JourneyRow("k", "f", "outward", "automatic", 1, 1, endpoint = 2))
+            assertEquals(2, dao.journey("k")!!.endpoint)
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun threePointRoutePersistsReachedEnds() = withStore { store, _ ->
+        val fork = EndpointPair("f", "Fork", Point(0.0, 0.0), Point(0.0, 0.01), Point(0.01, 0.0))
+        store.dao.pair(PairRow.from(fork))
+        val tracker = EndpointTracker(listOf(fork))
+        listOf(
+                fix(0.0, 0, 0.01),
+                fix(0.0, 10000, 0.009),
+                fix(0.0, 20000, 0.005),
+                fix(0.0, 30000),
+                fix(0.0, 100000),
+                fix(0.001, 110000),
+                fix(0.005, 120000),
+                fix(0.01, 130000),
+            )
+            .forEach { store.accept(tracker.feed(it)) }
+        assertEquals(
+            listOf("outward" to 1, "return" to 2),
+            store.dao.journeys().map { it.direction to it.endpoint },
+        )
+        assertTrue(store.dao.journeys().all { it.status == "complete" })
+        val manual = JourneyRow("teach", null, "outward", "manual", 200000, 200000)
+        store.dao.journey(manual)
+        listOf(fix(0.0, 200000, 0.01), fix(0.0, 210000, 0.005), fix(0.0, 220000)).forEach {
+            store.dao.point(TrackRow.from(manual.id, it))
+        }
+        assertTrue(store.finishManual(manual.id, 320000, 220000))
+        assertEquals(1, store.dao.pairs().size)
+        val taught = store.dao.journey("teach")!!
+        assertEquals(Triple("f", "return", 2), Triple(taught.pairId, taught.direction, taught.endpoint))
     }
 
     @Test
@@ -117,10 +190,7 @@ class PersistenceTest {
         assertEquals(1, store.dao.journeys().count { it.direction == "return" })
         val before = store.dao.journeys()
         store.db.close()
-        val reopened =
-            Room.databaseBuilder(context, Database::class.java, name)
-                .addMigrations(Database.MIGRATION)
-                .build()
+        val reopened = open(name)
         try {
             assertEquals(before, reopened.data().journeys())
             assertEquals(4, reopened.data().points("teach").size)

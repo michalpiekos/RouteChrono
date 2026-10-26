@@ -44,6 +44,7 @@ class MainActivity : Activity() {
     private var editing = false
     private var draftStart: Point? = null
     private var draftEnd: Point? = null
+    private var draftEnd2: Point? = null
     private var draftName = ""
     private var pointToSet = 0
     private var selectedPair: String? = null
@@ -91,6 +92,8 @@ class MainActivity : Activity() {
             if (it.containsKey("slat"))
                 draftStart = Point(it.getDouble("slat"), it.getDouble("slon"))
             if (it.containsKey("elat")) draftEnd = Point(it.getDouble("elat"), it.getDouble("elon"))
+            if (it.containsKey("e2lat"))
+                draftEnd2 = Point(it.getDouble("e2lat"), it.getDouble("e2lon"))
             selectedPair = it.getString("pair")
             selectedJourney = it.getString("journey")
         }
@@ -191,10 +194,15 @@ class MainActivity : Activity() {
                     toast("My location • last located ${date(locatedPosition!!.time)}")
                     true
                 } else if (tab == "Pairs" && editing) {
-                    if (pointToSet == 0) {
-                        draftStart = Point(p.latitude, p.longitude)
-                        pointToSet = 1
-                    } else draftEnd = Point(p.latitude, p.longitude)
+                    val tapped = Point(p.latitude, p.longitude)
+                    when (pointToSet) {
+                        0 -> {
+                            draftStart = tapped
+                            pointToSet = 1
+                        }
+                        1 -> draftEnd = tapped
+                        else -> draftEnd2 = tapped
+                    }
                     render()
                     drawMap(false)
                     true
@@ -438,8 +446,11 @@ class MainActivity : Activity() {
         if (editing) {
             label(
                 body,
-                if (pointToSet == 0) "Tap the map for the start point"
-                else "Tap the map for the end point",
+                when (pointToSet) {
+                    0 -> "Tap the map for the start point"
+                    1 -> "Tap the map for the end point"
+                    else -> "Tap the map for the optional second end point"
+                },
                 19f,
             )
             val input =
@@ -479,9 +490,24 @@ class MainActivity : Activity() {
                 pointToSet = 1
                 render()
             }
+            val second = row(body)
+            button(second, "Set end 2${if(draftEnd2!=null) " ✓" else " (optional)"}") {
+                pointToSet = 2
+                render()
+            }
+            if (draftEnd2 != null)
+                button(second, "Clear end 2") {
+                    draftEnd2 = null
+                    if (pointToSet == 2) pointToSet = 1
+                    render()
+                    drawMap(false)
+                }
             label(
                 body,
-                "Endpoints must be over 150 m apart. Both directions are recorded automatically.",
+                if (draftEnd2 == null)
+                    "Endpoints must be over 150 m apart. Both directions are recorded automatically."
+                else
+                    "Trips from the start finish at the first end reached; trips from either end finish at the start. Travel between the two ends is not measured. All points must be over 150 m apart.",
                 13f,
             )
             val actions = row(body)
@@ -498,9 +524,10 @@ class MainActivity : Activity() {
                         draftName.trim().ifEmpty { "Journey ${pairs.size+1}" },
                         a,
                         b,
+                        draftEnd2,
                     )
                 if (!pair.valid()) {
-                    toast("Choose endpoints over 150 m apart")
+                    toast("Choose endpoints over 150 m apart from each other")
                     return@button
                 }
                 withTracking {
@@ -509,6 +536,7 @@ class MainActivity : Activity() {
                             editing = false
                             draftStart = null
                             draftEnd = null
+                            draftEnd2 = null
                             draftName = ""
                             Tracking.command(this, "enable", explicit = true)
                             load(true)
@@ -519,6 +547,7 @@ class MainActivity : Activity() {
                 editing = false
                 draftStart = null
                 draftEnd = null
+                draftEnd2 = null
                 draftName = ""
                 render()
                 drawMap(true)
@@ -539,7 +568,7 @@ class MainActivity : Activity() {
             pairs
                 .filter { !it.archived }
                 .forEach { p ->
-                    button(body, p.name) {
+                    button(body, if (p.spec().end2 != null) "${p.name} · 2 ends" else p.name) {
                         selectedPair = p.id
                         drawMap(true)
                     }
@@ -653,10 +682,15 @@ class MainActivity : Activity() {
                 (it.pairId == selectedPair || (selectedPair == "unpaired" && it.pairId == null)) &&
                     it.status != "recording"
             }
-        for (dir in listOf("outward", "return")) {
-            val group = records.filter { it.direction == dir }
+        val groups =
+            if (pairs.firstOrNull { it.id == selectedPair }?.spec()?.end2 == null)
+                listOf("Start → End", "End → Start")
+            else
+                listOf("Start → End 1", "End 1 → Start", "Start → End 2", "End 2 → Start", NO_END)
+        for (heading in groups) {
+            val group = records.filter { direction(it) == heading }
             if (group.isEmpty()) continue
-            label(body, if (dir == "outward") "Start → End" else "End → Start", 18f)
+            label(body, heading, 18f)
             val summary = summarize(group.filter { it.status == "complete" }.map { it.durationMs })
             if (summary != null)
                 label(
@@ -714,13 +748,19 @@ class MainActivity : Activity() {
             bounds += ll
             m.addMarker(MarkerOptions().position(ll).title(title))
         }
+        fun pairMarkers(p: EndpointPair) {
+            marker(p.start, "${p.name} · Start")
+            marker(p.end, "${p.name} · ${if (p.end2 == null) "End" else "End 1"}")
+            p.end2?.let { marker(it, "${p.name} · End 2") }
+        }
         val livePair = if (tab == "Record") recordingPair(
             pairs.filter { !it.archived }.map { it.spec() },
             journeys.filter { it.status == "recording" && it.source == "automatic" }.mapNotNull { it.pairId },
         ) else null
         if (tab == "Pairs" && editing) {
             draftStart?.let { marker(it, "Start") }
-            draftEnd?.let { marker(it, "End") }
+            draftEnd?.let { marker(it, if (draftEnd2 == null) "End" else "End 1") }
+            draftEnd2?.let { marker(it, "End 2") }
         } else if (selectedJourney != null || tab == "Record" && recordingTraces.any { it.isNotEmpty() }) {
             val traces = if (tab == "Record") recordingTraces else listOf(trace)
             traces.flatMap(::segments).forEach { segment ->
@@ -735,21 +775,15 @@ class MainActivity : Activity() {
                 points.firstOrNull()?.let { marker(it.point, "Recorded start") }
                 points.lastOrNull()?.let { marker(it.point, if (tab == "Record") "Current position" else "Recorded end") }
             }
-            livePair?.let {
-                marker(it.start, "${it.name} · Start")
-                marker(it.end, "${it.name} · End")
-            }
+            livePair?.let(::pairMarkers)
         } else {
             pairs
                 .filter { if (selectedPair != null) it.id == selectedPair else !it.archived }
-                .forEach { p ->
-                    marker(p.spec().start, "${p.name} · Start")
-                    marker(p.spec().end, "${p.name} · End")
-                }
+                .forEach { pairMarkers(it.spec()) }
         }
         if (tab == "Record" && recordingTraces.any { it.isNotEmpty() }) {
             val required = recordingTraces.flatMap { listOfNotNull(it.firstOrNull()?.point, it.lastOrNull()?.point) }
-                .plus(livePair?.let { listOf(it.start, it.end) } ?: emptyList())
+                .plus(livePair?.points ?: emptyList())
                 .map { LatLng(it.lat, it.lon) }
             if (livePair != null) {
                 if (fit || required.any { !visibleOnRecordingMap(m, it) }) fitRecordingMap(m, required)
@@ -996,8 +1030,16 @@ class MainActivity : Activity() {
     private fun date(ms: Long) =
         DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(ms))
 
-    private fun direction(j: JourneyRow) =
-        if (j.direction == "return") "End → Start" else "Start → End"
+    private fun direction(j: JourneyRow): String {
+        val end =
+            if (pairs.firstOrNull { it.id == j.pairId }?.spec()?.end2 == null) "End"
+            else j.endpoint?.let { "End $it" }
+        return when {
+            j.direction == "return" -> "${end ?: "End"} → Start"
+            end == null -> NO_END
+            else -> "Start → $end"
+        }
+    }
 
     private fun duration(ms: Long): String {
         val s = ms.coerceAtLeast(0) / 1000
@@ -1019,6 +1061,10 @@ class MainActivity : Activity() {
         draftEnd?.let {
             out.putDouble("elat", it.lat)
             out.putDouble("elon", it.lon)
+        }
+        draftEnd2?.let {
+            out.putDouble("e2lat", it.lat)
+            out.putDouble("e2lon", it.lon)
         }
         out.putString("pair", selectedPair)
         out.putString("journey", selectedJourney)
@@ -1069,6 +1115,7 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        private const val NO_END = "Start → no end reached"
         private const val LOCATION_SOURCE = "my-location-source"
         private const val LOCATION_LAYER = "my-location-dot"
         private const val MAP_STYLE =

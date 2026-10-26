@@ -56,12 +56,30 @@ data class PairRow(
     val endLat: Double,
     val endLon: Double,
     val archived: Boolean = false,
+    val end2Lat: Double? = null,
+    val end2Lon: Double? = null,
 ) {
-    fun spec() = EndpointPair(id, name, Point(startLat, startLon), Point(endLat, endLon))
+    fun spec() =
+        EndpointPair(
+            id,
+            name,
+            Point(startLat, startLon),
+            Point(endLat, endLon),
+            if (end2Lat != null && end2Lon != null) Point(end2Lat, end2Lon) else null,
+        )
 
     companion object {
         fun from(p: EndpointPair) =
-            PairRow(p.id, p.name, p.start.lat, p.start.lon, p.end.lat, p.end.lon)
+            PairRow(
+                p.id,
+                p.name,
+                p.start.lat,
+                p.start.lon,
+                p.end.lat,
+                p.end.lon,
+                end2Lat = p.end2?.lat,
+                end2Lon = p.end2?.lon,
+            )
     }
 }
 
@@ -76,6 +94,7 @@ data class JourneyRow(
     val ended: Long? = null,
     val durationMs: Long = 0,
     val status: String = "recording",
+    val endpoint: Int? = null,
 )
 
 @Entity(tableName = "track_points", indices = [Index("journeyId")])
@@ -146,7 +165,7 @@ interface DataDao {
             JourneyRow::class,
             TrackRow::class,
         ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class Database : RoomDatabase() {
@@ -173,6 +192,15 @@ abstract class Database : RoomDatabase() {
                     )
                 }
             }
+
+        val MIGRATION_3 =
+            object : Migration(2, 3) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL("ALTER TABLE endpoint_pairs ADD COLUMN end2Lat REAL")
+                    db.execSQL("ALTER TABLE endpoint_pairs ADD COLUMN end2Lon REAL")
+                    db.execSQL("ALTER TABLE journeys ADD COLUMN endpoint INTEGER")
+                }
+            }
     }
 }
 
@@ -181,7 +209,7 @@ class Store internal constructor(context: Context, name: String = "mmp-go.db") {
     val reader = Executors.newSingleThreadExecutor()
     val db =
         Room.databaseBuilder(context.applicationContext, Database::class.java, name)
-            .addMigrations(Database.MIGRATION)
+            .addMigrations(Database.MIGRATION, Database.MIGRATION_3)
             .build()
     val dao = db.data()
 
@@ -209,13 +237,14 @@ class Store internal constructor(context: Context, name: String = "mmp-go.db") {
             }
     }
 
-    fun end(id: String, wall: Long, mono: Long, status: String) {
+    fun end(id: String, wall: Long, mono: Long, status: String, endpoint: Int? = null) {
         dao.journey(id)?.let {
             dao.update(
                 it.copy(
                     ended = wall,
                     durationMs = (mono - it.startMono).coerceAtLeast(0),
                     status = status,
+                    endpoint = endpoint ?: it.endpoint,
                 )
             )
         }
@@ -238,14 +267,11 @@ class Store internal constructor(context: Context, name: String = "mmp-go.db") {
                 val existing =
                     dao.pairs()
                         .filter { !it.archived }
-                        .firstOrNull { p ->
-                            (distance(p.spec().start, first.point) <= 50 &&
-                                distance(p.spec().end, last.point) <= 50) ||
-                                (distance(p.spec().end, first.point) <= 50 &&
-                                    distance(p.spec().start, last.point) <= 50)
+                        .firstNotNullOfOrNull { p ->
+                            p.spec().match(first.point, last.point)?.let { p to it }
                         }
                 val pair =
-                    existing
+                    existing?.first
                         ?: PairRow.from(
                                 EndpointPair(
                                     newId(),
@@ -255,11 +281,13 @@ class Store internal constructor(context: Context, name: String = "mmp-go.db") {
                                 )
                             )
                             .also { dao.pair(it) }
-                val reverse =
-                    distance(pair.spec().end, first.point) <
-                        distance(pair.spec().start, first.point)
+                val match = existing?.second ?: TripMatch(false, null)
                 dao.update(
-                    j.copy(pairId = pair.id, direction = if (reverse) "return" else "outward")
+                    j.copy(
+                        pairId = pair.id,
+                        direction = if (match.reverse) "return" else "outward",
+                        endpoint = match.endpoint,
+                    )
                 )
                 learned = true
             }
@@ -287,6 +315,7 @@ class Store internal constructor(context: Context, name: String = "mmp-go.db") {
                                 "automatic",
                                 event.fix.wallMs,
                                 event.fix.monoMs,
+                                endpoint = event.endpoint,
                             )
                         )
                         dao.point(TrackRow.from(event.id, event.fix))
@@ -298,6 +327,7 @@ class Store internal constructor(context: Context, name: String = "mmp-go.db") {
                             event.fix.wallMs,
                             event.fix.monoMs,
                             if (event.complete) "complete" else "interrupted",
+                            event.endpoint,
                         )
                 }
             }

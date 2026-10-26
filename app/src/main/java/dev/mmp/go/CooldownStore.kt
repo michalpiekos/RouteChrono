@@ -23,7 +23,7 @@ internal class CooldownStore(
             (0 until array.length()).mapNotNull { index ->
                 val row = array.getJSONObject(index)
                 val arrival = EndpointCooldown(row.getString("pair"), row.getInt("side"), row.getLong("mono"))
-                arrival.takeIf { it.side in 0..1 && time - it.arrivedMonoMs in 0 until ENDPOINT_COOLDOWN_MS }
+                arrival.takeIf { it.side in 0..2 && time - it.arrivedMonoMs in 0 until ENDPOINT_COOLDOWN_MS }
             }
         }.getOrDefault(emptyList())
     }

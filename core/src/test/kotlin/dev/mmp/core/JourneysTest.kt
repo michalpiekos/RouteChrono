@@ -219,4 +219,89 @@ class JourneysTest {
         assertTrue(engine.feed(f(0.009, 30000)).isEmpty())
     }
 
+    private val fork = pair.copy(end2 = Point(0.01, 0.0))
+    private val line = pair.copy(end2 = Point(0.0, 0.02))
+
+    private fun ended(events: List<TrackingEvent>) =
+        events.filterIsInstance<TrackingEvent.Ended>().map { it.complete to it.endpoint }
+
+    private fun started(events: List<TrackingEvent>) =
+        events.filterIsInstance<TrackingEvent.Started>().map { it.reverse to it.endpoint }
+
+    @Test
+    fun twoPointPairsReportNoEndpoint() {
+        val events = run(listOf(f(0.0, 0), f(0.001, 10000), f(0.01, 30000)))
+        assertEquals(listOf(false to null), started(events))
+        assertEquals(listOf(true to null), ended(events))
+    }
+
+    @Test
+    fun startTripFinishesAtEitherEnd() {
+        val toFirst = run(listOf(f(0.0, 0), f(0.001, 10000), f(0.005, 20000), f(0.01, 30000)), listOf(fork))
+        assertEquals(listOf(false to null), started(toFirst))
+        assertEquals(listOf(true to 1), ended(toFirst))
+        val toSecond =
+            run(listOf(f(0.0, 0), f(0.0, 10000, 0.001), f(0.0, 20000, 0.005), f(0.0, 30000, 0.01)), listOf(fork))
+        assertEquals(listOf(true to 2), ended(toSecond))
+    }
+
+    @Test
+    fun startTripFinishesAtFirstEndReached() {
+        val events =
+            run(listOf(f(0.0, 0), f(0.001, 10000), f(0.005, 20000), f(0.01, 30000), f(0.015, 40000), f(0.02, 50000)), listOf(line))
+        assertEquals(listOf(true to 1), ended(events))
+        assertEquals(1, events.filterIsInstance<TrackingEvent.Started>().size)
+    }
+
+    @Test
+    fun eitherEndReturnsToStart() {
+        val fromFirst = run(listOf(f(0.01, 0), f(0.009, 10000), f(0.005, 20000), f(0.0, 30000)), listOf(fork))
+        assertEquals(listOf(true to 1), started(fromFirst))
+        assertEquals(listOf(true to 1), ended(fromFirst))
+        val fromSecond =
+            run(listOf(f(0.0, 0, 0.01), f(0.0, 10000, 0.009), f(0.0, 20000, 0.005), f(0.0, 30000)), listOf(fork))
+        assertEquals(listOf(true to 2), started(fromSecond))
+        assertEquals(listOf(true to 2), ended(fromSecond))
+    }
+
+    @Test
+    fun reachingOtherEndInterruptsAndStartsReturnFromIt() {
+        val events =
+            run(
+                listOf(
+                    f(0.02, 0),
+                    f(0.019, 10000),
+                    f(0.015, 20000),
+                    f(0.01, 30000),
+                    f(0.009, 40000),
+                    f(0.005, 50000),
+                    f(0.0, 60000),
+                ),
+                listOf(line),
+            )
+        assertEquals(listOf(true to 2, true to 1), started(events))
+        assertEquals(listOf(false to 2, true to 1), ended(events))
+        assertEquals(30000L, events.filterIsInstance<TrackingEvent.Started>().last().fix.monoMs)
+    }
+
+    @Test
+    fun endToEndHopIsNeverComplete() {
+        val engine = EndpointTracker(listOf(fork))
+        engine.feed(f(0.01, 0))
+        assertEquals(listOf(false to 1), ended(engine.feed(f(0.0, 20000, 0.01))))
+        assertEquals(0, engine.activeCount)
+    }
+
+    @Test
+    fun threePointValidationAndMatching() {
+        assertTrue(fork.valid())
+        assertFalse(fork.copy(end2 = Point(0.0, 0.0101)).valid())
+        assertFalse(fork.copy(end2 = Point(0.0005, 0.0)).valid())
+        assertFalse(fork.copy(end2 = Point(Double.NaN, 0.0)).valid())
+        assertEquals(TripMatch(false, 2), fork.match(fork.start, fork.end2!!))
+        assertEquals(TripMatch(true, 1), fork.match(fork.end, fork.start))
+        assertNull(fork.match(fork.end, fork.end2!!))
+        assertNull(fork.match(fork.start, fork.start))
+        assertEquals(TripMatch(true, null), pair.match(pair.end, pair.start))
+    }
 }

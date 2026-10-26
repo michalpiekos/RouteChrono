@@ -1,4 +1,16 @@
-# Verification — 2026-10-14
+# Verification — 2026-10-26
+
+Route Chrono 0.9.0 start-and-two-ends checks on Motorola edge 30 ultra, Android 15/API 35:
+
+- Docker JVM tests: 31 passed (7 new for two-end routes: first end reached, either end back to start, end-to-end hop interrupted with a new trip from that end, validation and taught-trip matching). Debug and instrumentation APK builds passed; lint: 0 errors, 19 existing warnings.
+- Updated the installed 0.8.0 app in place. Full phone instrumentation: `OK (28 tests)`, 16.2 s, including 2→3 migration from the exported schema, persisted reached ends, Results grouping into five direction headings and the editor's set/clear/spacing checks.
+- The production database migrated from schema 2 to 3; every row in every table was unchanged and new columns were empty: 5 endpoint pair rows, 7 journeys, 4,326 track points and 609 legacy fixes. Preference files were identical.
+- The editor showed three draft markers, the second-end hint and Clear end 2; the draft was cancelled without saving. Phone left on Record, paused, with no tracking service.
+- APK SHA-256: `7e01b068508cabfe8bb2695fc4a65a8c46645fdb6041d74ec19d3cc16654f3da`.
+
+**Not tested on 0.9.0:** real driving with a two-end pair, saving a two-end pair on the production database (covered by isolated tests), other devices or Android versions. Private evidence remains in ignored `captures/three-point/`.
+
+## Previous verification — 0.8.0
 
 Route Chrono 0.8.0 location-marker checks on Motorola edge 30 ultra, Android 15/API 35:
 

@@ -9,9 +9,31 @@ data class Point(val lat: Double, val lon: Double)
 
 data class Fix(val point: Point, val wallMs: Long, val monoMs: Long, val accuracy: Double)
 
-data class EndpointPair(val id: String, val name: String, val start: Point, val end: Point) {
-    fun valid() = validPoint(start) && validPoint(end) && distance(start, end) > 150.0
+data class EndpointPair(
+    val id: String,
+    val name: String,
+    val start: Point,
+    val end: Point,
+    val end2: Point? = null,
+) {
+    val points: List<Point>
+        get() = listOfNotNull(start, end, end2)
+
+    fun valid() =
+        points.all(::validPoint) &&
+            points.indices.all { a ->
+                (a + 1 until points.size).all { b -> distance(points[a], points[b]) > 150.0 }
+            }
+
+    fun match(from: Point, to: Point): TripMatch? {
+        val a = points.indexOfFirst { distance(it, from) <= 50 }
+        val b = points.indexOfFirst { distance(it, to) <= 50 }
+        if (a < 0 || b < 0 || (a == 0) == (b == 0)) return null
+        return TripMatch(a != 0, if (end2 == null) null else maxOf(a, b))
+    }
 }
+
+data class TripMatch(val reverse: Boolean, val endpoint: Int?)
 
 fun validPoint(p: Point) =
     p.lat.isFinite() && p.lon.isFinite() && p.lat in -90.0..90.0 && p.lon in -180.0..180.0
@@ -30,12 +52,22 @@ fun usable(f: Fix) = validPoint(f.point) && f.accuracy.isFinite() && f.accuracy 
 const val GAP_MS = 30_000L
 
 sealed interface TrackingEvent {
-    data class Started(val id: String, val pair: EndpointPair, val reverse: Boolean, val fix: Fix) :
-        TrackingEvent
+    data class Started(
+        val id: String,
+        val pair: EndpointPair,
+        val reverse: Boolean,
+        val fix: Fix,
+        val endpoint: Int? = null,
+    ) : TrackingEvent
 
     data class Sample(val id: String, val fix: Fix) : TrackingEvent
 
-    data class Ended(val id: String, val fix: Fix, val complete: Boolean) : TrackingEvent
+    data class Ended(
+        val id: String,
+        val fix: Fix,
+        val complete: Boolean,
+        val endpoint: Int? = null,
+    ) : TrackingEvent
 }
 
 const val ENDPOINT_COOLDOWN_MS = 60_000L
@@ -60,6 +92,25 @@ class EndpointTracker(
         state.journey = null
         state.side = null
         state.anchor = null
+    }
+
+    private fun reach(
+        pair: EndpointPair,
+        state: State,
+        inside: Int,
+        fix: Fix,
+        events: MutableList<TrackingEvent>,
+    ) {
+        val origin = state.side!!
+        val complete = if (origin == 0) inside != 0 else inside == 0
+        val end = if (origin == 0) inside.takeIf { complete } else origin
+        events += TrackingEvent.Ended(state.journey!!, fix, complete, end.takeIf { pair.end2 != null })
+        if (origin != 0 && inside != 0 && inside != origin) {
+            // Travel between ends is never measured; the reached end becomes the next origin.
+            state.journey = null
+            state.side = inside
+            state.anchor = fix
+        } else arrive(pair, state, inside, fix)
     }
 
     private data class State(
@@ -94,31 +145,18 @@ class EndpointTracker(
         for (pair in pairs) {
             if (!pair.valid()) continue
             val s = states.getValue(pair.id)
-            val ds = distance(fix.point, pair.start)
-            val de = distance(fix.point, pair.end)
-            val inside =
-                when {
-                    ds <= 50 -> 0
-                    de <= 50 -> 1
-                    else -> null
-                }
+            val inside = pair.points.indexOfFirst { distance(fix.point, it) <= 50 }.takeIf { it >= 0 }
             val origin = s.side
             if (s.journey != null) {
-                val id = s.journey!!
-                events += TrackingEvent.Sample(id, fix)
-                if (inside != null) {
-                    events += TrackingEvent.Ended(id, fix, inside != origin)
-                    arrive(pair, s, inside, fix)
-                }
-            } else if (origin != null && (if (origin == 0) ds else de) > 75) {
+                events += TrackingEvent.Sample(s.journey!!, fix)
+                if (inside != null) reach(pair, s, inside, fix, events)
+            } else if (origin != null && distance(fix.point, pair.points[origin]) > 75) {
                 val id = newId()
-                events += TrackingEvent.Started(id, pair, origin == 1, s.anchor!!)
+                val end = origin.takeIf { it != 0 && pair.end2 != null }
+                events += TrackingEvent.Started(id, pair, origin != 0, s.anchor!!, end)
                 events += TrackingEvent.Sample(id, fix)
                 s.journey = id
-                if (inside != null && inside != origin) {
-                    events += TrackingEvent.Ended(id, fix, true)
-                    arrive(pair, s, inside, fix)
-                }
+                if (inside != null && inside != origin) reach(pair, s, inside, fix, events)
             } else if (inside != null && !cooling(pair.id, inside, fix.monoMs)) {
                 s.side = inside
                 s.anchor = fix

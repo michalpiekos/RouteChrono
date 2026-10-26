@@ -1,6 +1,6 @@
 Route Chrono by MMP Systems records journeys and compares trips between saved endpoints.
 
-Use the Record, Pairs and Results tabs. Press Start, travel, then Stop to save a journey and learn its endpoints. Future trips between those points are recorded automatically in either direction, using any route. You can also add multiple endpoint pairs on the map. Results show each path, time, distance, average speed, and simple timing summaries. Keep automatic recording enabled for repeat trips. A visible notification shows background activity. Press Exit in the app or notification to stop all tracking and close the app; reopening stays paused.
+Use the Record, Pairs and Results tabs. Press Start, travel, then Stop to save a journey and learn its endpoints. Future trips between those points are recorded automatically in either direction, using any route. You can also add multiple endpoint pairs on the map; a pair can have a second end, so trips from the start finish at whichever end is reached first and trips from either end finish at the start (travel between the two ends is not measured). Results show each path, time, distance, average speed, and simple timing summaries. Keep automatic recording enabled for repeat trips. A visible notification shows background activity. Press Exit in the app or notification to stop all tracking and close the app; reopening stays paused.
 
 ```text
 Start → travel → Stop ──────┐
