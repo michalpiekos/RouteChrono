@@ -321,6 +321,10 @@ class Store internal constructor(context: Context, name: String = "mmp-go.db") {
                         dao.point(TrackRow.from(event.id, event.fix))
                     }
                     is TrackingEvent.Sample -> dao.point(TrackRow.from(event.id, event.fix))
+                    is TrackingEvent.Abandoned -> {
+                        dao.deletePoints(event.id)
+                        dao.deleteJourney(event.id)
+                    }
                     is TrackingEvent.Ended ->
                         end(
                             event.id,

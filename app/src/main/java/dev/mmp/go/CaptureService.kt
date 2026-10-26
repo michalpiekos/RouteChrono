@@ -9,6 +9,7 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.*
 import androidx.core.app.ServiceCompat
+import androidx.core.content.edit
 import com.google.android.gms.location.*
 import dev.mmp.core.*
 
@@ -205,6 +206,12 @@ class CaptureService : Service() {
         tracker = EndpointTracker(pairSpecs, tracker.cooldowns)
     }
 
+    private fun announceAbandoned(event: TrackingEvent.Abandoned) {
+        val detail = TrackingNotification.abandonedMessage(event.pair.name)
+        Tracking.prefs(this).edit { putString("last_result", detail) }
+        TrackingNotification.abandoned(this, event.pair.id, detail)
+    }
+
     private fun receive(location: Location) {
         val now = SystemClock.elapsedRealtime()
         val f =
@@ -228,6 +235,7 @@ class CaptureService : Service() {
                 val events = tracker.feed(f)
                 if (before != tracker.cooldowns) cooldownStore.save(tracker.cooldowns)
                 store.accept(events)
+                events.filterIsInstance<TrackingEvent.Abandoned>().forEach(::announceAbandoned)
             }
             updateMode()
         }

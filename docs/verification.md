@@ -1,4 +1,15 @@
-# Verification — 2026-10-26
+# Verification — 2026-10-26 (0.10.0)
+
+Route Chrono 0.10.0 trip-abandon checks on Motorola edge 30 ultra, Android 15/API 35:
+
+- Docker JVM tests: 36 passed (5 new: abandon only beyond 1.5×, longest-end and end-to-start references, only the crossing pair abandoned, restart from an endpoint, no trip when departure is already beyond). Debug and instrumentation APK builds passed; lint: 0 errors, 19 existing warnings.
+- Updated 0.9.0 in place. Full phone instrumentation: `OK (30 tests)`, 10.7 s. An isolated database confirmed the abandoned trip left no journey or points while another pair's ongoing trip and an older recording remained. The silent, auto-cancelling abandon notification was posted separately from the tracking notification and removed after the test.
+- Every production database row and preference file was unchanged: 6 endpoint pair rows, 7 journeys, 4,326 track points and 609 legacy fixes. No tracking service was left running.
+- APK SHA-256: `c874aabfdc776ba19defcbf0202dce454f14a3c347142dfd9d26aca69e42561a`.
+
+**Not tested on 0.10.0:** a real drive that crosses the limit, other devices or Android versions. Private evidence remains in ignored `captures/abandon/`.
+
+## Previous verification — 0.9.0
 
 Route Chrono 0.9.0 start-and-two-ends checks on Motorola edge 30 ultra, Android 15/API 35:
 

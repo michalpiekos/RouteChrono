@@ -304,4 +304,61 @@ class JourneysTest {
         assertNull(fork.match(fork.start, fork.start))
         assertEquals(TripMatch(true, null), pair.match(pair.end, pair.start))
     }
+
+    private fun abandoned(events: List<TrackingEvent>) = events.filterIsInstance<TrackingEvent.Abandoned>()
+
+    @Test
+    fun tripIsAbandonedOnlyBeyondHalfAgainTheEndpointDistance() {
+        val engine = EndpointTracker(listOf(pair))
+        val kept =
+            listOf(f(0.0, 0), f(0.001, 10000), f(-0.005, 20000), f(-0.0149, 40000)).flatMap(engine::feed)
+        assertTrue(abandoned(kept).isEmpty())
+        assertEquals(1, engine.activeCount)
+        val dropped = engine.feed(f(-0.0151, 50000))
+        assertEquals(listOf(pair.id), abandoned(dropped).map { it.pair.id })
+        assertEquals(started(kept).size, 1)
+        assertTrue(dropped.none { it is TrackingEvent.Sample || it is TrackingEvent.Ended })
+        assertEquals(0, engine.activeCount)
+        assertEquals(1667.9, pair.referenceDistance(0) * ABANDON_FACTOR, 1.0)
+    }
+
+    @Test
+    fun startTripsUseTheLongestEndAndEndTripsTheirOwnDistance() {
+        val far = pair.copy(end2 = Point(0.02, 0.0))
+        val fromStart =
+            run(listOf(f(0.0, 0), f(0.001, 10000), f(-0.005, 20000), f(-0.0151, 40000), f(-0.022, 50000), f(-0.029, 60000)), listOf(far))
+        assertTrue(abandoned(fromStart).isEmpty())
+        val beyond = run(listOf(f(0.0, 0), f(0.001, 10000), f(-0.005, 20000), f(-0.0151, 40000), f(-0.022, 50000), f(-0.0302, 62000)), listOf(far))
+        assertEquals(1, abandoned(beyond).size)
+        val fromEnd =
+            run(listOf(f(0.01, 0), f(0.011, 10000), f(0.017, 20000), f(0.0249, 40000), f(0.0252, 45000)), listOf(far))
+        assertEquals(listOf(45000L), abandoned(fromEnd).map { it.fix.monoMs })
+    }
+
+    @Test
+    fun onlyTheCrossingPairIsAbandoned() {
+        val longer = EndpointPair("long", "Long", Point(0.0, 0.0), Point(0.0, -0.03))
+        val events =
+            run(
+                listOf(f(0.0, 0), f(0.001, 10000), f(-0.005, 20000), f(-0.0151, 35000), f(-0.022, 45000), f(-0.028, 55000), f(-0.03, 60000)),
+                listOf(pair, longer),
+            )
+        assertEquals(listOf(pair.id), abandoned(events).map { it.pair.id })
+        assertEquals(listOf(true to null), ended(events))
+    }
+
+    @Test
+    fun abandonedPairCanStartAgainFromAnEndpoint() {
+        val events =
+            run(listOf(f(0.0, 0), f(0.001, 10000), f(-0.005, 20000), f(-0.0151, 40000), f(-0.008, 50000), f(0.0, 200000), f(0.001, 210000), f(0.005, 220000), f(0.01, 230000)))
+        assertEquals(1, abandoned(events).size)
+        assertEquals(2, started(events).size)
+        assertEquals(listOf(true to null), ended(events))
+    }
+
+    @Test
+    fun departureAlreadyBeyondReachDoesNotStartATrip() {
+        val short = pair.copy(end = Point(0.0, 0.0015))
+        assertTrue(run(listOf(f(0.0, 0), f(-0.003, 5000)), listOf(short)).isEmpty())
+    }
 }

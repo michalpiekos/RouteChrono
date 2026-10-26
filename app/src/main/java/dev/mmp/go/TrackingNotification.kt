@@ -10,6 +10,7 @@ import androidx.core.app.NotificationManagerCompat
 object TrackingNotification {
     const val CHANNEL = "journeys"
     const val ID = 1
+    const val ABANDONED_ID = 2
 
     fun createChannel(c: Context) {
         c.getSystemService(NotificationManager::class.java)
@@ -42,14 +43,33 @@ object TrackingNotification {
     fun visible(c: Context) =
         c.getSystemService(NotificationManager::class.java).activeNotifications.any { it.id == ID }
 
+    private fun open(c: Context) =
+        PendingIntent.getActivity(
+            c,
+            0,
+            Intent(c, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+
+    fun abandonedMessage(pairName: String) =
+        "$pairName: moved over 50% farther than the endpoint distance. The trip was discarded and nothing was saved."
+
+    fun abandoned(c: Context, pairId: String, detail: String) {
+        val notification =
+            NotificationCompat.Builder(c, CHANNEL)
+                .setSmallIcon(R.drawable.ic_tracking)
+                .setContentTitle(c.getString(R.string.abandoned_notification_title, c.getString(R.string.app_name)))
+                .setContentText(detail)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
+                .setContentIntent(open(c))
+                .setAutoCancel(true)
+                .setCategory(NotificationCompat.CATEGORY_STATUS)
+                .build()
+        c.getSystemService(NotificationManager::class.java).notify(pairId, ABANDONED_ID, notification)
+    }
+
     fun build(c: Context, title: String, detail: String): Notification {
-        val open =
-            PendingIntent.getActivity(
-                c,
-                0,
-                Intent(c, MainActivity::class.java),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-            )
+        val open = open(c)
         val exit =
             PendingIntent.getBroadcast(
                 c,

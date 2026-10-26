@@ -19,6 +19,13 @@ data class EndpointPair(
     val points: List<Point>
         get() = listOfNotNull(start, end, end2)
 
+    fun referenceDistance(origin: Int): Double =
+        if (origin == 0) points.drop(1).maxOf { distance(start, it) }
+        else distance(points[origin], start)
+
+    fun beyondReach(origin: Int, p: Point) =
+        distance(points[origin], p) > ABANDON_FACTOR * referenceDistance(origin)
+
     fun valid() =
         points.all(::validPoint) &&
             points.indices.all { a ->
@@ -51,6 +58,8 @@ fun usable(f: Fix) = validPoint(f.point) && f.accuracy.isFinite() && f.accuracy 
 
 const val GAP_MS = 30_000L
 
+const val ABANDON_FACTOR = 1.5
+
 sealed interface TrackingEvent {
     data class Started(
         val id: String,
@@ -61,6 +70,8 @@ sealed interface TrackingEvent {
     ) : TrackingEvent
 
     data class Sample(val id: String, val fix: Fix) : TrackingEvent
+
+    data class Abandoned(val id: String, val pair: EndpointPair, val fix: Fix) : TrackingEvent
 
     data class Ended(
         val id: String,
@@ -147,9 +158,17 @@ class EndpointTracker(
             val s = states.getValue(pair.id)
             val inside = pair.points.indexOfFirst { distance(fix.point, it) <= 50 }.takeIf { it >= 0 }
             val origin = s.side
-            if (s.journey != null) {
+            if (s.journey != null && inside == null && pair.beyondReach(origin!!, fix.point)) {
+                events += TrackingEvent.Abandoned(s.journey!!, pair, fix)
+                s.journey = null
+                s.side = null
+                s.anchor = null
+            } else if (s.journey != null) {
                 events += TrackingEvent.Sample(s.journey!!, fix)
                 if (inside != null) reach(pair, s, inside, fix, events)
+            } else if (origin != null && inside == null && pair.beyondReach(origin, fix.point)) {
+                s.side = null
+                s.anchor = null
             } else if (origin != null && distance(fix.point, pair.points[origin]) > 75) {
                 val id = newId()
                 val end = origin.takeIf { it != 0 && pair.end2 != null }
