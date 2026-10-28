@@ -26,7 +26,7 @@ sha256sum app/build/outputs/apk/debug/app-debug.apk
 ./scripts/install-phone.sh DEVICE_SERIAL
 ```
 
-`DEVICE_SERIAL` comes from `adb devices` on the host. Route Chrono uses application ID `dev.mmp.go`, version 0.10.0 (code 10), supporting Android 8/API 26 and newer, targeting API 36. The APK is `app/build/outputs/apk/debug/app-debug.apk`.
+`DEVICE_SERIAL` comes from `adb devices` on the host. Route Chrono uses application ID `dev.mmp.go`, version 0.11.0 (code 11), supporting Android 8/API 26 and newer, targeting API 36. The APK is `app/build/outputs/apk/debug/app-debug.apk`.
 
 Pinned build dependencies: Gradle 8.13, AGP 8.13.0, Kotlin 2.2.20, Room 2.8.4, AndroidX core 1.17.0, Play services location 21.3.0, MapLibre 11.13.5 and OkHttp 4.12.0. The wrapper validates the Gradle distribution checksum. Missing dependencies require network access.
 

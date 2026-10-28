@@ -1,4 +1,16 @@
-# Verification — 2026-10-26 (0.10.0)
+# Verification — 2026-10-28 (0.11.0)
+
+Route Chrono 0.11.0 checks of routes with up to five ends, on a Motorola edge 30 ultra, Android 15/API 35:
+
+- Docker JVM tests: 41 passed. The 5 new tests cover a five-end route: a Start trip finishing at each end, a trip from each end back to Start, an end-to-end hop that is interrupted and then a return from the reached end, per-end cooldown, and validation, matching and the reference distance. Debug and instrumentation APK builds passed. Lint: 0 errors, 19 existing warnings.
+- Updated 0.10.0 in place. Full phone instrumentation: `OK (35 tests)`, 11.6 s. This covers the 3→4 migration from the exported schema, a five-end route persisting and a taught trip matching its fifth end, Results grouping for five ends, and the editor adding up to five ends, removing the last end and rejecting bad spacing.
+- The production database migrated from schema 3 to 4. Every row in every table was unchanged and the new columns were empty: 6 endpoint pair rows, 8 journeys, 5,553 track points and 609 legacy fixes. The first test run pressed a real Save, which turned on automatic recording in the app preferences. That preference file was restored byte-identical from the pre-test snapshot, and the test no longer saves. All preference files ended identical.
+- The editor showed five end buttons and **Remove last end**; the draft was cancelled. The phone was left on Record, paused, with no tracking service.
+- APK SHA-256: `b168003f1afb5468e43b1c9534a16bb72910bb2f0999a3fc0c1414958e7000d6`.
+
+**Not tested on 0.11.0:** saving a multi-end route through the Save button on the phone (covered by isolated tests), real driving with a multi-end route, other devices or Android versions. Private evidence is kept in the ignored `captures/five-ends/` folder.
+
+## Previous verification — 0.10.0
 
 Route Chrono 0.10.0 trip-abandon checks on Motorola edge 30 ultra, Android 15/API 35:
 

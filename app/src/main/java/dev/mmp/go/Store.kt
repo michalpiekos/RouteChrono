@@ -58,14 +58,21 @@ data class PairRow(
     val archived: Boolean = false,
     val end2Lat: Double? = null,
     val end2Lon: Double? = null,
+    val end3Lat: Double? = null,
+    val end3Lon: Double? = null,
+    val end4Lat: Double? = null,
+    val end4Lon: Double? = null,
+    val end5Lat: Double? = null,
+    val end5Lon: Double? = null,
 ) {
     fun spec() =
         EndpointPair(
             id,
             name,
             Point(startLat, startLon),
-            Point(endLat, endLon),
-            if (end2Lat != null && end2Lon != null) Point(end2Lat, end2Lon) else null,
+            listOf(Point(endLat, endLon)) +
+                listOf(end2Lat to end2Lon, end3Lat to end3Lon, end4Lat to end4Lon, end5Lat to end5Lon)
+                    .mapNotNull { (lat, lon) -> if (lat != null && lon != null) Point(lat, lon) else null },
         )
 
     companion object {
@@ -77,8 +84,14 @@ data class PairRow(
                 p.start.lon,
                 p.end.lat,
                 p.end.lon,
-                end2Lat = p.end2?.lat,
-                end2Lon = p.end2?.lon,
+                end2Lat = p.ends.getOrNull(1)?.lat,
+                end2Lon = p.ends.getOrNull(1)?.lon,
+                end3Lat = p.ends.getOrNull(2)?.lat,
+                end3Lon = p.ends.getOrNull(2)?.lon,
+                end4Lat = p.ends.getOrNull(3)?.lat,
+                end4Lon = p.ends.getOrNull(3)?.lon,
+                end5Lat = p.ends.getOrNull(4)?.lat,
+                end5Lon = p.ends.getOrNull(4)?.lon,
             )
     }
 }
@@ -165,7 +178,7 @@ interface DataDao {
             JourneyRow::class,
             TrackRow::class,
         ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class Database : RoomDatabase() {
@@ -201,6 +214,16 @@ abstract class Database : RoomDatabase() {
                     db.execSQL("ALTER TABLE journeys ADD COLUMN endpoint INTEGER")
                 }
             }
+
+        val MIGRATION_4 =
+            object : Migration(3, 4) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    for (n in 3..5) {
+                        db.execSQL("ALTER TABLE endpoint_pairs ADD COLUMN end${n}Lat REAL")
+                        db.execSQL("ALTER TABLE endpoint_pairs ADD COLUMN end${n}Lon REAL")
+                    }
+                }
+            }
     }
 }
 
@@ -209,7 +232,7 @@ class Store internal constructor(context: Context, name: String = "mmp-go.db") {
     val reader = Executors.newSingleThreadExecutor()
     val db =
         Room.databaseBuilder(context.applicationContext, Database::class.java, name)
-            .addMigrations(Database.MIGRATION, Database.MIGRATION_3)
+            .addMigrations(Database.MIGRATION, Database.MIGRATION_3, Database.MIGRATION_4)
             .build()
     val dao = db.data()
 

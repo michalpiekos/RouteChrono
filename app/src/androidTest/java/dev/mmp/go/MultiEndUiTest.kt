@@ -17,10 +17,21 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
-class ThreePointUiTest {
+class MultiEndUiTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val fork =
         EndpointPair("fork", "Home routes", Point(52.0, 19.0), Point(52.0, 19.03), Point(52.03, 19.0))
+    private val star =
+        EndpointPair(
+            "star",
+            "Star routes",
+            Point(52.0, 19.0),
+            Point(52.0, 19.03),
+            Point(52.03, 19.0),
+            Point(52.0, 18.97),
+            Point(51.97, 19.0),
+            Point(52.03, 19.03),
+        )
 
     private fun field(name: String) = MainActivity::class.java.getDeclaredField(name).apply { isAccessible = true }
 
@@ -68,7 +79,7 @@ class ThreePointUiTest {
         test: (Store, ActivityScenario<MainActivity>) -> Unit,
     ) {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val name = "three-point-ui-${newId()}.db"
+        val name = "multi-end-ui-${newId()}.db"
         val store = Store(context, name)
         try {
             setup(store)
@@ -124,27 +135,86 @@ class ThreePointUiTest {
     }
 
     @Test
-    fun editorSetsClearsAndValidatesSecondEnd() {
+    fun resultsGroupTripsByEachOfFiveEnds() {
+        withActivity(
+            setup = { store ->
+                store.dao.pair(PairRow.from(star))
+                (1..5).forEach { end ->
+                    store.dao.journey(JourneyRow("o$end", star.id, "outward", "automatic", 100000L + end, 0, 110000, 10000L, "complete", end))
+                    store.dao.journey(JourneyRow("r$end", star.id, "return", "automatic", 200000L + end, 0, 210000, 10000L, "complete", end))
+                }
+            },
+            prepare = {
+                field("tab").set(it, "Results")
+                field("selectedPair").set(it, star.id)
+            },
+        ) { _, scenario ->
+            val headings = (1..5).flatMap { listOf("Start → End $it", "End $it → Start") }
+            waitFor("All five-end direction groups must appear") { texts(scenario).containsAll(headings) }
+            assertEquals(headings, texts(scenario).filter { it in headings })
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun draftEnds(activity: MainActivity) = field("draftEnds").get(activity) as MutableList<Point?>
+
+    @Test
+    fun editorAddsUpToFiveValidEnds() {
+        withActivity(
+            setup = {},
+            prepare = {
+                field("tab").set(it, "Pairs")
+                field("editing").setBoolean(it, true)
+                field("draftStart").set(it, star.start)
+                draftEnds(it)[0] = star.ends[0]
+            },
+        ) { store, scenario ->
+            waitFor("Single end uses the classic label") { texts(scenario).contains("Set end ✓") }
+            assertFalse(texts(scenario).contains("Remove last end"))
+            for (n in 2..5) {
+                click("Add end")
+                waitFor("End $n must be offered") { texts(scenario).contains("Set end $n") }
+                assertTrue(texts(scenario).contains("Tap the map for end $n"))
+                scenario.onActivity {
+                    assertEquals(n, field("pointToSet").getInt(it))
+                    draftEnds(it)[n - 1] = star.ends[n - 1]
+                }
+            }
+            scenario.onActivity { MainActivity::class.java.getDeclaredMethod("render").apply { isAccessible = true }.invoke(it) }
+            waitFor("All five ends must be shown as set") { (1..5).all { texts(scenario).contains("Set end $it ✓") } }
+            assertFalse(texts(scenario).contains("Add end"))
+            // Saving enables automatic recording in the real app preferences, so only the draft is checked.
+            scenario.onActivity {
+                val draft = EndpointPair("draft", "Draft", field("draftStart").get(it) as Point, draftEnds(it).filterNotNull())
+                assertEquals(star.ends, draft.ends)
+                assertTrue(draft.valid())
+            }
+            assertTrue(store.dao.pairs().isEmpty())
+        }
+    }
+
+    @Test
+    fun editorRemovesLastEndAndValidatesSpacing() {
         withActivity(
             setup = {},
             prepare = {
                 field("tab").set(it, "Pairs")
                 field("editing").setBoolean(it, true)
                 field("draftStart").set(it, fork.start)
-                field("draftEnd").set(it, fork.end)
-                field("draftEnd2").set(it, fork.end2)
-                field("pointToSet").setInt(it, 2)
+                field("draftEnds").set(it, mutableListOf<Point?>(fork.ends[0], fork.ends[1], null))
+                field("pointToSet").setInt(it, 3)
             },
         ) { store, scenario ->
             waitFor("Second end must be shown as set") { texts(scenario).contains("Set end 2 ✓") }
-            assertTrue(texts(scenario).contains("Tap the map for the optional second end point"))
-            click("Clear end 2")
-            waitFor("Second end must be optional again") { texts(scenario).contains("Set end 2 (optional)") }
-            assertFalse(texts(scenario).contains("Clear end 2"))
+            click("Save pair")
+            scenario.onActivity { assertTrue(field("editing").getBoolean(it)) }
+            assertTrue(store.dao.pairs().isEmpty())
+            click("Remove last end")
+            waitFor("Third end must be removed") { !texts(scenario).contains("Set end 3") }
             scenario.onActivity {
-                assertNull(field("draftEnd2").get(it))
-                assertEquals(1, field("pointToSet").getInt(it))
-                field("draftEnd2").set(it, Point(52.0, 19.0305))
+                assertEquals(listOf(fork.ends[0], fork.ends[1]), draftEnds(it))
+                assertEquals(2, field("pointToSet").getInt(it))
+                draftEnds(it)[1] = Point(52.0, 19.0305)
                 MainActivity::class.java.getDeclaredMethod("render").apply { isAccessible = true }.invoke(it)
             }
             click("Save pair")

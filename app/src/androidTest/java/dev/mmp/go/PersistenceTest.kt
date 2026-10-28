@@ -68,7 +68,7 @@ class PersistenceTest {
 
     private fun open(name: String) =
         Room.databaseBuilder(context, Database::class.java, name)
-            .addMigrations(Database.MIGRATION, Database.MIGRATION_3)
+            .addMigrations(Database.MIGRATION, Database.MIGRATION_3, Database.MIGRATION_4)
             .build()
 
     @Test
@@ -112,7 +112,7 @@ class PersistenceTest {
                 PairRow("p", "Pair", 0.0, 0.0, 0.0, 0.01, archived = true),
                 dao.pairs().single(),
             )
-            assertNull(dao.pairs().single().spec().end2)
+            assertEquals(1, dao.pairs().single().spec().ends.size)
             assertEquals(
                 JourneyRow("j", "p", "return", "automatic", 100, 5, 200, 95, "complete"),
                 dao.journey("j"),
@@ -127,6 +127,75 @@ class PersistenceTest {
             db.close()
             context.deleteDatabase(name)
         }
+    }
+
+    @Test
+    fun schemaThreeMigrationKeepsRowsAndAddsFurtherEnds() {
+        val name = "migration-${newId()}.db"
+        val old = legacyDatabase(name, 3)
+        old.execSQL("INSERT INTO fixes VALUES (1,'session',0,'raw-evidence')")
+        old.execSQL("INSERT INTO endpoint_pairs VALUES ('p','Pair',0.0,0.0,0.0,0.01,0,NULL,NULL)")
+        old.execSQL("INSERT INTO endpoint_pairs VALUES ('f','Fork',0.0,0.0,0.0,0.01,1,0.01,0.0)")
+        old.execSQL("INSERT INTO journeys VALUES ('j','f','return','automatic',100,5,200,95,'complete',2)")
+        old.execSQL("INSERT INTO track_points VALUES (7,'j',0.0,0.01,100,5,4.5)")
+        old.close()
+        val db = open(name)
+        try {
+            val dao = db.data()
+            assertEquals(1, dao.legacyFixCount())
+            assertEquals(
+                listOf(
+                    PairRow("p", "Pair", 0.0, 0.0, 0.0, 0.01),
+                    PairRow("f", "Fork", 0.0, 0.0, 0.0, 0.01, true, 0.01, 0.0),
+                ),
+                dao.pairs(),
+            )
+            assertEquals(
+                EndpointPair("f", "Fork", Point(0.0, 0.0), Point(0.0, 0.01), Point(0.01, 0.0)),
+                dao.pairs().last().spec(),
+            )
+            assertEquals(
+                JourneyRow("j", "f", "return", "automatic", 100, 5, 200, 95, "complete", 2),
+                dao.journey("j"),
+            )
+            assertEquals(listOf(TrackRow(7, "j", 0.0, 0.01, 100, 5, 4.5)), dao.points("j"))
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun fiveEndRoutePersistsAndTeachesAgainstFifthEnd() = withStore { store, _ ->
+        val star =
+            EndpointPair(
+                "s",
+                "Star",
+                Point(0.0, 0.0),
+                Point(0.0, 0.01),
+                Point(0.01, 0.0),
+                Point(0.0, -0.01),
+                Point(-0.01, 0.0),
+                Point(0.01, 0.01),
+            )
+        store.dao.pair(PairRow.from(star))
+        assertEquals(star, store.dao.pairs().single().spec())
+        val tracker = EndpointTracker(listOf(star))
+        listOf(fix(0.0, 0), fix(0.0, 15000, 0.001), fix(0.005, 30000, 0.005), fix(0.01, 45000, 0.01))
+            .forEach { store.accept(tracker.feed(it)) }
+        assertEquals(
+            listOf(Triple("outward", 5, "complete")),
+            store.dao.journeys().map { Triple(it.direction, it.endpoint, it.status) },
+        )
+        val manual = JourneyRow("teach", null, "outward", "manual", 200000, 200000)
+        store.dao.journey(manual)
+        listOf(fix(0.01, 200000, 0.01), fix(0.005, 210000, 0.005), fix(0.0, 220000)).forEach {
+            store.dao.point(TrackRow.from(manual.id, it))
+        }
+        assertTrue(store.finishManual(manual.id, 320000, 220000))
+        assertEquals(1, store.dao.pairs().size)
+        val taught = store.dao.journey("teach")!!
+        assertEquals(Triple("s", "return", 5), Triple(taught.pairId, taught.direction, taught.endpoint))
     }
 
     @Test

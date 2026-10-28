@@ -85,7 +85,7 @@ class RecordingUiTest {
     @Test
     fun pairEndpointsRemainVisibleAndConcurrentPairsDoNotLockFraming() = withMap { activity, map, view ->
         val pair = EndpointPair("ui-pair", "Test pair", Point(52.0, 19.0), Point(52.0, 19.03))
-        val other = pair.copy(id = "ui-other", name = "Other pair", end = Point(52.01, 19.0))
+        val other = pair.copy(id = "ui-other", name = "Other pair", ends = listOf(Point(52.01, 19.0)))
         set(activity, "pairs", listOf(PairRow.from(pair), PairRow.from(other)))
         val journey = JourneyRow("ui-journey", pair.id, "outward", "automatic", 0, 0)
         set(activity, "journeys", listOf(journey))

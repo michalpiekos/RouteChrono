@@ -5,6 +5,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import dev.mmp.core.ENDPOINT_COOLDOWN_MS
 import dev.mmp.core.EndpointCooldown
+import dev.mmp.core.MAX_ENDS
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -23,7 +24,7 @@ internal class CooldownStore(
             (0 until array.length()).mapNotNull { index ->
                 val row = array.getJSONObject(index)
                 val arrival = EndpointCooldown(row.getString("pair"), row.getInt("side"), row.getLong("mono"))
-                arrival.takeIf { it.side in 0..2 && time - it.arrivedMonoMs in 0 until ENDPOINT_COOLDOWN_MS }
+                arrival.takeIf { it.side in 0..MAX_ENDS && time - it.arrivedMonoMs in 0 until ENDPOINT_COOLDOWN_MS }
             }
         }.getOrDefault(emptyList())
     }

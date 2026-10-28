@@ -13,11 +13,24 @@ data class EndpointPair(
     val id: String,
     val name: String,
     val start: Point,
-    val end: Point,
-    val end2: Point? = null,
+    val ends: List<Point>,
 ) {
+    constructor(
+        id: String,
+        name: String,
+        start: Point,
+        end: Point,
+        vararg more: Point,
+    ) : this(id, name, start, listOf(end) + more)
+
+    val end: Point
+        get() = ends.first()
+
+    val multiEnd: Boolean
+        get() = ends.size > 1
+
     val points: List<Point>
-        get() = listOfNotNull(start, end, end2)
+        get() = listOf(start) + ends
 
     fun referenceDistance(origin: Int): Double =
         if (origin == 0) points.drop(1).maxOf { distance(start, it) }
@@ -27,7 +40,8 @@ data class EndpointPair(
         distance(points[origin], p) > ABANDON_FACTOR * referenceDistance(origin)
 
     fun valid() =
-        points.all(::validPoint) &&
+        ends.size in 1..MAX_ENDS &&
+            points.all(::validPoint) &&
             points.indices.all { a ->
                 (a + 1 until points.size).all { b -> distance(points[a], points[b]) > 150.0 }
             }
@@ -36,9 +50,11 @@ data class EndpointPair(
         val a = points.indexOfFirst { distance(it, from) <= 50 }
         val b = points.indexOfFirst { distance(it, to) <= 50 }
         if (a < 0 || b < 0 || (a == 0) == (b == 0)) return null
-        return TripMatch(a != 0, if (end2 == null) null else maxOf(a, b))
+        return TripMatch(a != 0, if (multiEnd) maxOf(a, b) else null)
     }
 }
+
+const val MAX_ENDS = 5
 
 data class TripMatch(val reverse: Boolean, val endpoint: Int?)
 
@@ -115,7 +131,7 @@ class EndpointTracker(
         val origin = state.side!!
         val complete = if (origin == 0) inside != 0 else inside == 0
         val end = if (origin == 0) inside.takeIf { complete } else origin
-        events += TrackingEvent.Ended(state.journey!!, fix, complete, end.takeIf { pair.end2 != null })
+        events += TrackingEvent.Ended(state.journey!!, fix, complete, end.takeIf { pair.multiEnd })
         if (origin != 0 && inside != 0 && inside != origin) {
             // Travel between ends is never measured; the reached end becomes the next origin.
             state.journey = null
@@ -171,7 +187,7 @@ class EndpointTracker(
                 s.anchor = null
             } else if (origin != null && distance(fix.point, pair.points[origin]) > 75) {
                 val id = newId()
-                val end = origin.takeIf { it != 0 && pair.end2 != null }
+                val end = origin.takeIf { it != 0 && pair.multiEnd }
                 events += TrackingEvent.Started(id, pair, origin != 0, s.anchor!!, end)
                 events += TrackingEvent.Sample(id, fix)
                 s.journey = id

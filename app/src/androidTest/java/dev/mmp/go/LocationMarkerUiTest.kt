@@ -146,7 +146,7 @@ class LocationMarkerUiTest {
                 assertEquals(19.015, target.longitude, 0.01)
                 assertEquals(2, map(activity).markers.size)
                 assertNull(field("draftStart").get(activity))
-                assertNull(field("draftEnd").get(activity))
+                assertEquals(listOf(null), field("draftEnds").get(activity))
             }
         }
     }

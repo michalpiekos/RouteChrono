@@ -146,8 +146,8 @@ class JourneysTest {
 
     @Test
     fun summariesAndEndpointValidation() {
-        assertFalse(pair.copy(end = Point(0.0, 0.0001)).valid())
-        assertFalse(pair.copy(end = Point(Double.NaN, 0.0)).valid())
+        assertFalse(pair.copy(ends = listOf(Point(0.0, 0.0001))).valid())
+        assertFalse(pair.copy(ends = listOf(Point(Double.NaN, 0.0))).valid())
         assertEquals(TimeSummary(3, 10, 20, 30), summarize(listOf(10, 20, 30)))
         assertNull(summarize(emptyList()))
     }
@@ -219,8 +219,8 @@ class JourneysTest {
         assertTrue(engine.feed(f(0.009, 30000)).isEmpty())
     }
 
-    private val fork = pair.copy(end2 = Point(0.01, 0.0))
-    private val line = pair.copy(end2 = Point(0.0, 0.02))
+    private val fork = pair.copy(ends = pair.ends + Point(0.01, 0.0))
+    private val line = pair.copy(ends = pair.ends + Point(0.0, 0.02))
 
     private fun ended(events: List<TrackingEvent>) =
         events.filterIsInstance<TrackingEvent.Ended>().map { it.complete to it.endpoint }
@@ -295,12 +295,12 @@ class JourneysTest {
     @Test
     fun threePointValidationAndMatching() {
         assertTrue(fork.valid())
-        assertFalse(fork.copy(end2 = Point(0.0, 0.0101)).valid())
-        assertFalse(fork.copy(end2 = Point(0.0005, 0.0)).valid())
-        assertFalse(fork.copy(end2 = Point(Double.NaN, 0.0)).valid())
-        assertEquals(TripMatch(false, 2), fork.match(fork.start, fork.end2!!))
+        assertFalse(fork.copy(ends = listOf(fork.end, Point(0.0, 0.0101))).valid())
+        assertFalse(fork.copy(ends = listOf(fork.end, Point(0.0005, 0.0))).valid())
+        assertFalse(fork.copy(ends = listOf(fork.end, Point(Double.NaN, 0.0))).valid())
+        assertEquals(TripMatch(false, 2), fork.match(fork.start, fork.ends[1]))
         assertEquals(TripMatch(true, 1), fork.match(fork.end, fork.start))
-        assertNull(fork.match(fork.end, fork.end2!!))
+        assertNull(fork.match(fork.end, fork.ends[1]))
         assertNull(fork.match(fork.start, fork.start))
         assertEquals(TripMatch(true, null), pair.match(pair.end, pair.start))
     }
@@ -324,7 +324,7 @@ class JourneysTest {
 
     @Test
     fun startTripsUseTheLongestEndAndEndTripsTheirOwnDistance() {
-        val far = pair.copy(end2 = Point(0.02, 0.0))
+        val far = pair.copy(ends = pair.ends + Point(0.02, 0.0))
         val fromStart =
             run(listOf(f(0.0, 0), f(0.001, 10000), f(-0.005, 20000), f(-0.0151, 40000), f(-0.022, 50000), f(-0.029, 60000)), listOf(far))
         assertTrue(abandoned(fromStart).isEmpty())
@@ -358,7 +358,63 @@ class JourneysTest {
 
     @Test
     fun departureAlreadyBeyondReachDoesNotStartATrip() {
-        val short = pair.copy(end = Point(0.0, 0.0015))
+        val short = pair.copy(ends = listOf(Point(0.0, 0.0015)))
         assertTrue(run(listOf(f(0.0, 0), f(-0.003, 5000)), listOf(short)).isEmpty())
+    }
+
+    private val star =
+        pair.copy(ends = listOf(Point(0.0, 0.01), Point(0.01, 0.0), Point(0.0, -0.01), Point(-0.01, 0.0), Point(0.01, 0.01)))
+
+    private fun towards(from: Point, to: Point, t0: Long): List<Fix> =
+        listOf(0.0, 0.1, 0.5, 1.0).mapIndexed { i, k ->
+            f(from.lon + (to.lon - from.lon) * k, t0 + i * 15000L, from.lat + (to.lat - from.lat) * k)
+        }
+
+    @Test
+    fun fiveEndStartTripsFinishAtEachEnd() {
+        star.ends.forEachIndexed { i, end ->
+            val events = run(towards(star.start, end, 0), listOf(star))
+            assertEquals(listOf(false to null), started(events))
+            assertEquals(listOf(true to i + 1), ended(events))
+        }
+    }
+
+    @Test
+    fun fiveEndTripsFromEachEndReturnToStart() {
+        star.ends.forEachIndexed { i, end ->
+            val events = run(towards(end, star.start, 0), listOf(star))
+            assertEquals(listOf(true to i + 1), started(events))
+            assertEquals(listOf(true to i + 1), ended(events))
+        }
+    }
+
+    @Test
+    fun fiveEndHopBetweenEndsInterruptsAndReturnsFromReachedEnd() {
+        val hop = towards(star.ends[4], star.ends[0], 0)
+        val events = run(hop + towards(star.ends[0], star.start, 45000).drop(1), listOf(star))
+        assertEquals(listOf(true to 5, true to 1), started(events))
+        assertEquals(listOf(false to 5, true to 1), ended(events))
+    }
+
+    @Test
+    fun fiveEndCooldownIsPerEnd() {
+        val engine = EndpointTracker(listOf(star))
+        towards(star.start, star.ends[2], 0).forEach { engine.feed(it) }
+        assertEquals(listOf(3), engine.cooldowns.map { it.side })
+        assertTrue(engine.feed(f(-0.0099, 50000)).isEmpty())
+        assertTrue(engine.feed(f(-0.008, 55000)).isEmpty())
+    }
+
+    @Test
+    fun fiveEndValidationMatchingAndReach() {
+        assertTrue(star.valid())
+        assertFalse(star.copy(ends = star.ends + Point(-0.01, -0.01)).valid())
+        assertFalse(star.copy(ends = emptyList()).valid())
+        assertFalse(star.copy(ends = star.ends.dropLast(1) + Point(0.0105, 0.0)).valid())
+        assertEquals(TripMatch(false, 5), star.match(star.start, star.ends[4]))
+        assertEquals(TripMatch(true, 4), star.match(star.ends[3], star.start))
+        assertNull(star.match(star.ends[1], star.ends[3]))
+        assertEquals(distance(star.start, star.ends[4]), star.referenceDistance(0), 0.0)
+        assertEquals(distance(star.start, star.ends[3]), star.referenceDistance(4), 0.0)
     }
 }
