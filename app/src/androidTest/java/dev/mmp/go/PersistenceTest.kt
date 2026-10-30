@@ -192,7 +192,7 @@ class PersistenceTest {
         listOf(fix(0.01, 200000, 0.01), fix(0.005, 210000, 0.005), fix(0.0, 220000)).forEach {
             store.dao.point(TrackRow.from(manual.id, it))
         }
-        assertTrue(store.finishManual(manual.id, 320000, 220000))
+        assertEquals(ManualResult(true, true), store.finishManual(manual.id, 320000, 220000))
         assertEquals(1, store.dao.pairs().size)
         val taught = store.dao.journey("teach")!!
         assertEquals(Triple("s", "return", 5), Triple(taught.pairId, taught.direction, taught.endpoint))
@@ -224,7 +224,7 @@ class PersistenceTest {
         listOf(fix(0.0, 200000, 0.01), fix(0.0, 210000, 0.005), fix(0.0, 220000)).forEach {
             store.dao.point(TrackRow.from(manual.id, it))
         }
-        assertTrue(store.finishManual(manual.id, 320000, 220000))
+        assertEquals(ManualResult(true, true), store.finishManual(manual.id, 320000, 220000))
         assertEquals(1, store.dao.pairs().size)
         val taught = store.dao.journey("teach")!!
         assertEquals(Triple("f", "return", 2), Triple(taught.pairId, taught.direction, taught.endpoint))
@@ -237,8 +237,8 @@ class PersistenceTest {
         listOf(fix(0.0, 0), fix(0.002, 10000), fix(0.006, 20000), fix(0.01, 30000)).forEach {
             store.dao.point(TrackRow.from(manual.id, it))
         }
-        assertTrue(store.finishManual(manual.id, 130000, 30000))
-        assertFalse(store.finishManual(manual.id, 130000, 30000))
+        assertEquals(ManualResult(true, true), store.finishManual(manual.id, 130000, 30000))
+        assertNull(store.finishManual(manual.id, 130000, 30000))
         val pair = store.dao.pairs().single()
         assertEquals(pair.id, store.dao.journey("teach")!!.pairId)
         val tracker = EndpointTracker(listOf(pair.spec()))
@@ -269,25 +269,70 @@ class PersistenceTest {
     }
 
     @Test
-    fun interruptionKeepsPartialTraceWithoutSuccessfulTiming() = withStore { store, _ ->
-        store.dao.journey(JourneyRow("partial", null, "outward", "manual", 100000, 0))
-        store.dao.point(TrackRow.from("partial", fix(0.0, 1000)))
-        store.dao.point(TrackRow.from("partial", fix(0.001, 10000)))
-        store.recover()
-        assertEquals("interrupted", store.dao.journey("partial")!!.status)
-        assertEquals(2, store.dao.points("partial").size)
-        assertEquals(10000L, store.dao.journey("partial")!!.durationMs)
+    fun cleanupDiscardsEveryIncompleteJourneyWithItsPoints() = withStore { store, _ ->
+        val pair = PairRow.from(EndpointPair("p", "Test", Point(0.0, 0.0), Point(0.0, 0.01)))
+        store.dao.pair(pair)
+        val kept = JourneyRow("kept", pair.id, "outward", "automatic", 100000, 0, 110000, 10000, "complete")
+        store.dao.journey(kept)
+        store.dao.point(TrackRow.from(kept.id, fix(0.0, 0)))
+        for (status in listOf("recording", "interrupted", "no GPS")) {
+            store.dao.journey(JourneyRow(status, pair.id, "outward", "manual", 100000, 0, status = status))
+            store.dao.point(TrackRow.from(status, fix(0.001, 1000)))
+        }
+        val keptPoints = store.dao.points(kept.id)
+        store.discardIncomplete()
+        assertEquals(listOf(kept), store.dao.journeys())
+        assertEquals(keptPoints, store.dao.points(kept.id))
+        listOf("recording", "interrupted", "no GPS").forEach { assertTrue(store.dao.points(it).isEmpty()) }
+        assertEquals(listOf(pair), store.dao.pairs())
+    }
+
+    @Test
+    fun interruptedAutomaticTripsLeaveNoTrace() = withStore { store, _ ->
+        val pair = EndpointPair("p", "Test", Point(0.0, 0.0), Point(0.0, 0.01))
+        val fork = EndpointPair("f", "Fork", Point(1.0, 0.0), Point(1.0, 0.01), Point(1.01, 0.0))
+        store.dao.pair(PairRow.from(pair))
+        store.dao.pair(PairRow.from(fork))
+        val gap = EndpointTracker(listOf(pair))
+        val started = mutableListOf<String>()
+        listOf(fix(0.0, 0), fix(0.001, 10000), fix(0.003, 50000)).forEach { f ->
+            val events = gap.feed(f)
+            started += events.filterIsInstance<TrackingEvent.Started>().map { it.id }
+            store.accept(events)
+        }
+        val hop = EndpointTracker(listOf(fork))
+        listOf(fix(0.01, 0, 1.0), fix(0.009, 10000, 1.001), fix(0.005, 20000, 1.005), fix(0.0, 30000, 1.01))
+            .forEach { f ->
+                val events = hop.feed(f)
+                started += events.filterIsInstance<TrackingEvent.Started>().map { it.id }
+                store.accept(events)
+            }
+        assertEquals(2, started.size)
+        assertTrue(store.dao.journeys().isEmpty())
+        started.forEach { assertTrue(store.dao.points(it).isEmpty()) }
+    }
+
+    @Test
+    fun incompleteManualRecordingIsDiscardedButStillTeaches() = withStore { store, _ ->
+        store.dao.journey(JourneyRow("gap", null, "outward", "manual", 100000, 0))
+        listOf(fix(0.0, 0), fix(0.002, 10000), fix(0.006, 50000), fix(0.01, 60000)).forEach {
+            store.dao.point(TrackRow.from("gap", it))
+        }
+        assertEquals(ManualResult(false, true), store.finishManual("gap", 160000, 60000))
+        assertNull(store.dao.journey("gap"))
+        assertTrue(store.dao.points("gap").isEmpty())
+        assertEquals(1, store.dao.pairs().size)
     }
 
     @Test
     fun noGpsOrUnseparatedEndpointsDoNotTeachPairs() = withStore { store, _ ->
         store.dao.journey(JourneyRow("empty", null, "outward", "manual", 100000, 0))
-        assertFalse(store.finishManual("empty", 110000, 10000))
-        assertEquals("no GPS", store.dao.journey("empty")!!.status)
+        assertEquals(ManualResult(false, false), store.finishManual("empty", 110000, 10000))
+        assertNull(store.dao.journey("empty"))
         store.dao.journey(JourneyRow("near", null, "outward", "manual", 100000, 0))
         store.dao.point(TrackRow.from("near", fix(0.0, 0)))
         store.dao.point(TrackRow.from("near", fix(0.00001, 10000)))
-        assertFalse(store.finishManual("near", 110000, 10000))
+        assertEquals(ManualResult(true, false), store.finishManual("near", 110000, 10000))
         assertTrue(store.dao.pairs().isEmpty())
     }
 

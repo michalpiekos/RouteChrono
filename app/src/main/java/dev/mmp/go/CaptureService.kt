@@ -168,18 +168,12 @@ class CaptureService : Service() {
     }
 
     private fun interruptAutomatic() {
-        store.dao
-            .journeys()
-            .filter { it.status == "recording" && it.source == "automatic" }
-            .forEach { j ->
-                val last = store.dao.points(j.id).lastOrNull()
-                store.end(
-                    j.id,
-                    last?.wallMs ?: j.started,
-                    last?.monoMs ?: j.startMono,
-                    "interrupted",
-                )
-            }
+        store.db.runInTransaction {
+            store.dao
+                .journeys()
+                .filter { it.status == "recording" && it.source == "automatic" }
+                .forEach { store.discard(it.id) }
+        }
         tracker = EndpointTracker(pairSpecs, tracker.cooldowns)
     }
 
@@ -194,14 +188,20 @@ class CaptureService : Service() {
 
     private fun finishManual(wall: Long, mono: Long) {
         val id = manualId ?: return
-        val learned = store.finishManual(id, wall, mono)
+        val result = store.finishManual(id, wall, mono)
+        val learned = result?.learned == true
         manualId = null
         Tracking.manual = false
         if (learned) Tracking.automatic(this, token, true)
         Tracking.message =
-            if (learned) "Journey saved. Its endpoints are now monitored in both directions."
-            else
-                "Journey saved without a new pair. Endpoints need fresh GPS and must be over 150 m apart."
+            when {
+                result?.saved != true && learned ->
+                    "Recording incomplete · not saved. Its endpoints are now monitored in both directions."
+                result?.saved != true -> "Recording incomplete · not saved."
+                learned -> "Journey saved. Its endpoints are now monitored in both directions."
+                else ->
+                    "Journey saved without a new pair. Endpoints need fresh GPS and must be over 150 m apart."
+            }
         Tracking.prefs(this).edit().putString("last_result", Tracking.message).apply()
         tracker = EndpointTracker(pairSpecs, tracker.cooldowns)
     }
@@ -325,9 +325,9 @@ class CaptureService : Service() {
         main.removeCallbacks(watchdog)
         removeUpdates()
         store.executor.execute {
-            runCatching { store.recover() }
+            runCatching { store.discardIncomplete() }
                 .onFailure {
-                    android.util.Log.e("MmpGo", "Partial recording retained for recovery", it)
+                    android.util.Log.e("MmpGo", "Incomplete recordings left for the next cleanup", it)
                 }
             main.post {
                 Tracking.running = false
@@ -349,7 +349,7 @@ class CaptureService : Service() {
         Tracking.manual = false
         if (active === this) active = null
         removeUpdates()
-        store.executor.execute { store.recover() }
+        store.executor.execute { store.discardIncomplete() }
         super.onDestroy()
     }
 

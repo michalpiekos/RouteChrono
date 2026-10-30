@@ -23,7 +23,7 @@ Everything stays on the phone: there is no account, backend or cloud sync.
 - **Several pairs at once**, each tracked independently.
 - **Results per direction** with a map of every path, plus fastest / average / slowest times.
 - **Ignores wrong turns:** a trip that strays more than 1.5× the endpoint distance from where it started is discarded, with a silent notification.
-- **Honest data:** GPS gaps and implausible jumps mark a trip as interrupted instead of guessing.
+- **Only complete trips:** a trip cut short by a GPS gap, an implausible jump, Exit or a restart is discarded instead of guessed.
 - **Visible and stoppable:** a notification shows whenever tracking runs; **Exit** stops everything.
 
 ## How it works

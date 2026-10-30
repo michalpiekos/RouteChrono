@@ -1,3 +1,14 @@
+# Verification — 2026-10-30 (0.12.0)
+
+Route Chrono 0.12.0 checks of keeping only complete journeys, on a Motorola edge 30 ultra, Android 15/API 35:
+
+- Docker JVM tests, debug and instrumentation APK builds passed. Lint: 0 errors, 19 existing warnings.
+- Updated 0.11.0 in place. Full phone instrumentation: `OK (37 tests)`, 12.5 s. New isolated tests cover the startup cleanup removing every non-complete journey with its points, automatic trips ended by a GPS gap or an end-to-end hop leaving no rows, and an incomplete manual recording being discarded while still teaching its pair.
+- The production database's single interrupted automatic journey and its 364 points were deleted on first start; the 9 complete journeys, their 6,278 points, 7 pair rows, 609 legacy fixes and configs were unchanged. All preference files stayed byte-identical. No tracking service was left running.
+- APK SHA-256: `aca53e7f1c1355055bd0db6d9c32ed30555d6a72c759adb4e6b21769edfd26d8`.
+
+**Not tested on 0.12.0:** the Results screen inspected by hand on the phone (covered by isolated UI tests), a real drive interrupted by a GPS gap, other devices or Android versions. Private evidence is kept in the ignored `captures/drop-incomplete/` folder.
+
 # Verification — 2026-10-28 (0.11.0)
 
 Route Chrono 0.11.0 checks of routes with up to five ends, on a Motorola edge 30 ultra, Android 15/API 35:

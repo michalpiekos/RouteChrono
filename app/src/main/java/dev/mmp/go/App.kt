@@ -43,6 +43,6 @@ class App : Application() {
                 pending.cancel()
             }
         }
-        Store.get(this).let { s -> s.executor.execute { s.recover() } }
+        Store.get(this).let { s -> s.executor.execute { s.discardIncomplete() } }
     }
 }

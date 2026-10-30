@@ -102,11 +102,11 @@ object Tracking {
                 context.stopService(Intent(context, CaptureService::class.java))
                 val store = Store.get(context)
                 store.executor.execute {
-                    runCatching { store.recover() }
+                    runCatching { store.discardIncomplete() }
                         .onFailure {
                             android.util.Log.e(
                                 "MmpGo",
-                                "Partial recording retained for recovery",
+                                "Incomplete recordings left for the next cleanup",
                                 it,
                             )
                         }

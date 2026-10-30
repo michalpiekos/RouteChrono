@@ -227,6 +227,8 @@ abstract class Database : RoomDatabase() {
     }
 }
 
+data class ManualResult(val saved: Boolean, val learned: Boolean)
+
 class Store internal constructor(context: Context, name: String = "mmp-go.db") {
     val executor = Executors.newSingleThreadExecutor()
     val reader = Executors.newSingleThreadExecutor()
@@ -240,42 +242,37 @@ class Store internal constructor(context: Context, name: String = "mmp-go.db") {
         db.runInTransaction {
             val recording = dao.journey(id) ?: return@runInTransaction
             check(recording.status != "recording") { "Stop the recording before deleting it." }
-            dao.deletePoints(id)
-            dao.deleteJourney(id)
+            discard(id)
         }
     }
 
-    fun recover() {
-        dao.journeys()
-            .filter { it.status == "recording" }
-            .forEach { j ->
-                val last = dao.points(j.id).lastOrNull()
-                dao.update(
-                    j.copy(
-                        ended = last?.wallMs ?: j.started,
-                        durationMs = ((last?.monoMs ?: j.startMono) - j.startMono).coerceAtLeast(0),
-                        status = "interrupted",
-                    )
-                )
-            }
+    fun discard(id: String) {
+        dao.deletePoints(id)
+        dao.deleteJourney(id)
     }
 
-    fun end(id: String, wall: Long, mono: Long, status: String, endpoint: Int? = null) {
+    fun discardIncomplete() {
+        db.runInTransaction {
+            dao.journeys().filter { it.status != "complete" }.forEach { discard(it.id) }
+        }
+    }
+
+    private fun complete(id: String, wall: Long, mono: Long, endpoint: Int? = null) {
         dao.journey(id)?.let {
             dao.update(
                 it.copy(
                     ended = wall,
                     durationMs = (mono - it.startMono).coerceAtLeast(0),
-                    status = status,
+                    status = "complete",
                     endpoint = endpoint ?: it.endpoint,
                 )
             )
         }
     }
 
-    fun finishManual(id: String, wall: Long, mono: Long): Boolean {
-        val j = dao.journey(id) ?: return false
-        if (j.status != "recording") return false
+    fun finishManual(id: String, wall: Long, mono: Long): ManualResult? {
+        val j = dao.journey(id) ?: return null
+        if (j.status != "recording") return null
         val fixes = dao.points(id).map { it.fix() }
         val first = fixes.firstOrNull()
         val last = fixes.lastOrNull()
@@ -285,6 +282,7 @@ class Store internal constructor(context: Context, name: String = "mmp-go.db") {
                 first.monoMs - j.startMono <= 15000 &&
                 mono - last.monoMs <= 15000
         var learned = false
+        var saved = false
         db.runInTransaction {
             if (endpointFresh && distance(first!!.point, last!!.point) > 150) {
                 val existing =
@@ -314,15 +312,10 @@ class Store internal constructor(context: Context, name: String = "mmp-go.db") {
                 )
                 learned = true
             }
-            val quality =
-                when {
-                    first == null -> "no GPS"
-                    !endpointFresh || segments(fixes).size > 1 -> "interrupted"
-                    else -> "complete"
-                }
-            end(id, wall, mono, quality)
+            saved = first != null && endpointFresh && segments(fixes).size == 1
+            if (saved) complete(id, wall, mono) else discard(id)
         }
-        return learned
+        return ManualResult(saved, learned)
     }
 
     fun accept(events: List<TrackingEvent>) {
@@ -344,18 +337,11 @@ class Store internal constructor(context: Context, name: String = "mmp-go.db") {
                         dao.point(TrackRow.from(event.id, event.fix))
                     }
                     is TrackingEvent.Sample -> dao.point(TrackRow.from(event.id, event.fix))
-                    is TrackingEvent.Abandoned -> {
-                        dao.deletePoints(event.id)
-                        dao.deleteJourney(event.id)
-                    }
+                    is TrackingEvent.Abandoned -> discard(event.id)
                     is TrackingEvent.Ended ->
-                        end(
-                            event.id,
-                            event.fix.wallMs,
-                            event.fix.monoMs,
-                            if (event.complete) "complete" else "interrupted",
-                            event.endpoint,
-                        )
+                        if (event.complete)
+                            complete(event.id, event.fix.wallMs, event.fix.monoMs, event.endpoint)
+                        else discard(event.id)
                 }
             }
         }

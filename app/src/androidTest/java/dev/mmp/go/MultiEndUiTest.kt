@@ -110,8 +110,7 @@ class MultiEndUiTest {
                 Triple("outward", 1, "complete"),
                 Triple("return", 1, "complete"),
                 Triple("outward", 2, "complete"),
-                Triple("return", 2, "interrupted"),
-                Triple("outward", null, "interrupted"),
+                Triple("return", 2, "complete"),
             )
         withActivity(
             setup = { store ->
@@ -127,7 +126,7 @@ class MultiEndUiTest {
                 field("selectedPair").set(it, fork.id)
             },
         ) { _, scenario ->
-            val headings = listOf("Start → End 1", "End 1 → Start", "Start → End 2", "End 2 → Start", "Start → no end reached")
+            val headings = listOf("Start → End 1", "End 1 → Start", "Start → End 2", "End 2 → Start")
             waitFor("All direction groups must appear") { texts(scenario).containsAll(headings) }
             assertEquals(headings, texts(scenario).filter { it in headings })
             assertFalse(texts(scenario).contains("Start → End"))

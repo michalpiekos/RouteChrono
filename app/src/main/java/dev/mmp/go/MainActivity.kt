@@ -634,18 +634,8 @@ class MainActivity : Activity() {
                 "${duration(detail.durationMs)}  •  ${format(meters/1000)} km\n${if(detail.durationMs>0) format(meters/detail.durationMs*3600) else "—"} km/h average",
                 19f,
             )
-            label(
-                body,
-                "${detail.source.replaceFirstChar(Char::uppercase)} • ${detail.status}",
-                14f,
-            )
-            if (trace.isEmpty()) label(body, "No usable GPS points were received.")
-            else
-                label(
-                    body,
-                    "Recorded GPS path. Distance is an estimate; gaps are not connected.",
-                    13f,
-                )
+            label(body, detail.source.replaceFirstChar(Char::uppercase), 14f)
+            label(body, "Recorded GPS path. Distance is an estimate.", 13f)
             if (detail.status != "recording")
                 button(body, "Delete recording", destructive = true) { confirmDeleteRecording(detail) }
             return
@@ -683,12 +673,12 @@ class MainActivity : Activity() {
         val endCount = pairs.firstOrNull { it.id == selectedPair }?.spec()?.ends?.size ?: 1
         val groups =
             if (endCount == 1) listOf("Start → End", "End → Start")
-            else (1..endCount).flatMap { listOf("Start → End $it", "End $it → Start") } + NO_END
+            else (1..endCount).flatMap { listOf("Start → End $it", "End $it → Start") }
         for (heading in groups) {
             val group = records.filter { direction(it) == heading }
             if (group.isEmpty()) continue
             label(body, heading, 18f)
-            val summary = summarize(group.filter { it.status == "complete" }.map { it.durationMs })
+            val summary = summarize(group.map { it.durationMs })
             if (summary != null)
                 label(
                     body,
@@ -698,7 +688,7 @@ class MainActivity : Activity() {
             group.forEach { j ->
                 button(
                     body,
-                    "${date(j.started)}\n${duration(j.durationMs)} · ${j.source} · ${j.status}",
+                    "${date(j.started)}\n${duration(j.durationMs)} · ${j.source}",
                 ) {
                     selectedJourney = j.id
                     load(true)
@@ -1037,11 +1027,7 @@ class MainActivity : Activity() {
         val end =
             if (pairs.firstOrNull { it.id == j.pairId }?.spec()?.multiEnd != true) "End"
             else j.endpoint?.let { "End $it" }
-        return when {
-            j.direction == "return" -> "${end ?: "End"} → Start"
-            end == null -> NO_END
-            else -> "Start → $end"
-        }
+        return if (j.direction == "return") "${end ?: "End"} → Start" else "Start → ${end ?: "End"}"
     }
 
     private fun duration(ms: Long): String {
@@ -1117,7 +1103,6 @@ class MainActivity : Activity() {
     }
 
     companion object {
-        private const val NO_END = "Start → no end reached"
         private const val LOCATION_SOURCE = "my-location-source"
         private const val LOCATION_LAYER = "my-location-dot"
         private const val MAP_STYLE =
