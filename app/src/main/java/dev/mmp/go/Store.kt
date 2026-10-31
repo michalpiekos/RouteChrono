@@ -5,7 +5,10 @@ import androidx.room.*
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import dev.mmp.core.*
+import java.util.concurrent.Callable
 import java.util.concurrent.Executors
+
+data class DroppedJourney(val journey: JourneyRow, val pair: PairRow?, val reason: DropReason)
 
 @Entity(tableName = "configs")
 data class ConfigRow(@PrimaryKey val id: String, val created: Long, val payload: String)
@@ -149,6 +152,11 @@ interface DataDao {
 
     @Query("SELECT * FROM journeys WHERE id=:id") fun journey(id: String): JourneyRow?
 
+    @Query("SELECT * FROM journeys WHERE status='recording' ORDER BY rowid")
+    fun recording(): List<JourneyRow>
+
+    @Query("SELECT * FROM endpoint_pairs WHERE id=:id") fun pairById(id: String): PairRow?
+
     @Insert fun journey(row: JourneyRow)
 
     @Update fun update(row: JourneyRow)
@@ -251,11 +259,27 @@ class Store internal constructor(context: Context, name: String = "mmp-go.db") {
         dao.deleteJourney(id)
     }
 
-    fun discardIncomplete() {
-        db.runInTransaction {
-            dao.journeys().filter { it.status != "complete" }.forEach { discard(it.id) }
-        }
+    private fun drop(id: String, reason: DropReason): DroppedJourney? {
+        val journey = dao.journey(id) ?: return null
+        discard(id)
+        return DroppedJourney(journey, journey.pairId?.let(dao::pairById), reason)
     }
+
+    fun dropAutomatic(reason: DropReason): List<DroppedJourney> =
+        db.runInTransaction(
+            Callable {
+                dao.recording().filter { it.source == "automatic" }.mapNotNull { drop(it.id, reason) }
+            }
+        )
+
+    fun discardIncomplete(reason: DropReason): List<DroppedJourney> =
+        db.runInTransaction(
+            Callable {
+                dao.journeys()
+                    .filter { it.status != "complete" }
+                    .mapNotNull { j -> drop(j.id, reason)?.takeIf { j.status == "recording" } }
+            }
+        )
 
     private fun complete(id: String, wall: Long, mono: Long, endpoint: Int? = null) {
         dao.journey(id)?.let {
@@ -318,34 +342,40 @@ class Store internal constructor(context: Context, name: String = "mmp-go.db") {
         return ManualResult(saved, learned)
     }
 
-    fun accept(events: List<TrackingEvent>) {
-        db.runInTransaction {
-            events.forEach { event ->
-                when (event) {
-                    is TrackingEvent.Started -> {
-                        dao.journey(
-                            JourneyRow(
-                                event.id,
-                                event.pair.id,
-                                if (event.reverse) "return" else "outward",
-                                "automatic",
-                                event.fix.wallMs,
-                                event.fix.monoMs,
-                                endpoint = event.endpoint,
+    fun accept(events: List<TrackingEvent>): List<DroppedJourney> =
+        db.runInTransaction(
+            Callable {
+                events.mapNotNull { event ->
+                    when (event) {
+                        is TrackingEvent.Started -> {
+                            dao.journey(
+                                JourneyRow(
+                                    event.id,
+                                    event.pair.id,
+                                    if (event.reverse) "return" else "outward",
+                                    "automatic",
+                                    event.fix.wallMs,
+                                    event.fix.monoMs,
+                                    endpoint = event.endpoint,
+                                )
                             )
-                        )
-                        dao.point(TrackRow.from(event.id, event.fix))
+                            dao.point(TrackRow.from(event.id, event.fix))
+                            null
+                        }
+                        is TrackingEvent.Sample -> {
+                            dao.point(TrackRow.from(event.id, event.fix))
+                            null
+                        }
+                        is TrackingEvent.Abandoned -> drop(event.id, DropReason.ABANDONED)
+                        is TrackingEvent.Ended ->
+                            if (event.complete) {
+                                complete(event.id, event.fix.wallMs, event.fix.monoMs, event.endpoint)
+                                null
+                            } else drop(event.id, event.reason ?: DropReason.STOPPED)
                     }
-                    is TrackingEvent.Sample -> dao.point(TrackRow.from(event.id, event.fix))
-                    is TrackingEvent.Abandoned -> discard(event.id)
-                    is TrackingEvent.Ended ->
-                        if (event.complete)
-                            complete(event.id, event.fix.wallMs, event.fix.monoMs, event.endpoint)
-                        else discard(event.id)
                 }
             }
-        }
-    }
+        )
 
     companion object {
         @Volatile private var instance: Store? = null

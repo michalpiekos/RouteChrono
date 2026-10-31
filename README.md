@@ -22,9 +22,10 @@ Everything stays on the phone: there is no account, backend or cloud sync.
 - **Plan on a map:** tap a start and up to five ends — trips from the start finish at whichever end is reached first, trips from any end finish at the start.
 - **Several pairs at once**, each tracked independently.
 - **Results per direction** with a map of every path, plus fastest / average / slowest times.
-- **Ignores wrong turns:** a trip that strays more than 1.5× the endpoint distance from where it started is discarded, with a silent notification.
+- **Ignores wrong turns:** a trip that strays more than 1.5× the endpoint distance from where it started is discarded.
 - **Only complete trips:** a trip cut short by a GPS gap, an implausible jump, Exit or a restart is discarded instead of guessed.
-- **Visible and stoppable:** a notification shows whenever tracking runs; **Exit** stops everything.
+- **Says what it dropped:** each discarded trip gets its own notification naming the pair, direction, start time and reason.
+- **Visible and stoppable:** Record and the notification name every journey in progress; **Exit** stops everything.
 
 ## How it works
 
@@ -55,7 +56,7 @@ adb devices                                 # find DEVICE_SERIAL
 
 ## Usage
 
-1. **Record** — grant precise location and notifications. Press **Start** at your starting point, travel, and press **Stop** at the destination. Endpoints over 150 m apart become a saved pair and automatic recording turns on.
+1. **Record** — grant precise location and notifications. Press **Start** at your starting point, travel, and press **Stop** at the destination. Endpoints over 150 m apart become a saved pair and automatic recording turns on. Record lists the journeys in progress, or "No journey in progress".
 2. **Pairs** — tap **Add pair on map**, set the start and end (use **Add end** for up to five ends, **Remove last end** to drop one), name it and save. Rename or remove pairs here; removing keeps past results.
 3. Travel as usual. With **Automatic recording · ON**, trips between saved points are recorded in the background.
 4. **Results** — pick a pair to see trips grouped by direction with timing summaries; open one for its map, distance and speed, or delete it.

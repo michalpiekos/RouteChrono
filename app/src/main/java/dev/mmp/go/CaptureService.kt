@@ -9,7 +9,6 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.*
 import androidx.core.app.ServiceCompat
-import androidx.core.content.edit
 import com.google.android.gms.location.*
 import dev.mmp.core.*
 
@@ -20,6 +19,7 @@ class CaptureService : Service() {
     private val manager by lazy { getSystemService(LocationManager::class.java) }
     private var tracker = EndpointTracker(emptyList())
     private var pairSpecs = emptyList<EndpointPair>()
+    private var pairRows = emptyMap<String, PairRow>()
     private lateinit var cooldownStore: CooldownStore
     private var manualId: String? = null
     private var lastMono = -1L
@@ -127,17 +127,21 @@ class CaptureService : Service() {
             when (action) {
                 "start" ->
                     if (manualId == null) {
-                        interruptAutomatic()
+                        interruptAutomatic(DropReason.MANUAL_STARTED)
                         val id = newId()
                         store.dao.journey(JourneyRow(id, null, "outward", "manual", wall, mono))
                         manualId = id
                         Tracking.manual = true
                     }
-                "enable" -> Tracking.automatic(this, token, true)
+                "enable" -> {
+                    Tracking.automatic(this, token, true)
+                    tracker.clearCooldowns()
+                    cooldownStore.save(emptyList())
+                }
                 "stop" -> finishManual(wall, mono)
                 "pause" -> {
                     Tracking.automatic(this, token, false)
-                    interruptAutomatic()
+                    interruptAutomatic(DropReason.PAUSED)
                 }
             }
             reloadPairs()
@@ -167,20 +171,17 @@ class CaptureService : Service() {
         }
     }
 
-    private fun interruptAutomatic() {
-        store.db.runInTransaction {
-            store.dao
-                .journeys()
-                .filter { it.status == "recording" && it.source == "automatic" }
-                .forEach { store.discard(it.id) }
-        }
+    private fun interruptAutomatic(reason: DropReason) {
+        TrackingNotification.dropped(this, store.dropAutomatic(reason))
         tracker = EndpointTracker(pairSpecs, tracker.cooldowns)
     }
 
     private fun reloadPairs() {
-        val next = store.dao.pairs().filter { !it.archived }.map { it.spec() }
+        val rows = store.dao.pairs()
+        pairRows = rows.associateBy { it.id }
+        val next = rows.filter { !it.archived }.map { it.spec() }
         if (next != pairSpecs) {
-            interruptAutomatic()
+            interruptAutomatic(DropReason.PAIRS_CHANGED)
             pairSpecs = next
             tracker = EndpointTracker(next, tracker.cooldowns)
         }
@@ -206,12 +207,6 @@ class CaptureService : Service() {
         tracker = EndpointTracker(pairSpecs, tracker.cooldowns)
     }
 
-    private fun announceAbandoned(event: TrackingEvent.Abandoned) {
-        val detail = TrackingNotification.abandonedMessage(event.pair.name)
-        Tracking.prefs(this).edit { putString("last_result", detail) }
-        TrackingNotification.abandoned(this, event.pair.id, detail)
-    }
-
     private fun receive(location: Location) {
         val now = SystemClock.elapsedRealtime()
         val f =
@@ -234,8 +229,7 @@ class CaptureService : Service() {
                 val before = tracker.cooldowns
                 val events = tracker.feed(f)
                 if (before != tracker.cooldowns) cooldownStore.save(tracker.cooldowns)
-                store.accept(events)
-                events.filterIsInstance<TrackingEvent.Abandoned>().forEach(::announceAbandoned)
+                TrackingNotification.dropped(this, store.accept(events))
             }
             updateMode()
         }
@@ -245,7 +239,7 @@ class CaptureService : Service() {
         if (closed || !Tracking.current(this, token)) return
         val automatic = Tracking.enabled(this) && pairSpecs.isNotEmpty()
         if (manualId == null && !automatic) {
-            main.post { shutdown {} }
+            main.post { shutdown(DropReason.STOPPED) {} }
             return
         }
         modeTitle =
@@ -256,7 +250,11 @@ class CaptureService : Service() {
                 manualId != null ->
                     "Manual recording • Stop saves endpoints; Exit ends all tracking"
                 tracker.activeCount > 0 ->
-                    "${tracker.activeCount} automatic journey(s) • Exit stops all tracking"
+                    store.dao.recording()
+                        .filter { it.source == "automatic" }
+                        .joinToString("; ", "Recording ", " • Exit stops all tracking") {
+                            journeyLabel(it.pairId?.let(pairRows::get), it)
+                        }
                 else ->
                     "Watching ${pairSpecs.size} pair(s), both directions • Exit stops all tracking"
             }
@@ -314,7 +312,7 @@ class CaptureService : Service() {
         } catch (_: RuntimeException) {}
     }
 
-    internal fun shutdown(done: () -> Unit) {
+    internal fun shutdown(reason: DropReason, done: () -> Unit) {
         if (shutdownComplete) {
             done()
             return
@@ -325,7 +323,7 @@ class CaptureService : Service() {
         main.removeCallbacks(watchdog)
         removeUpdates()
         store.executor.execute {
-            runCatching { store.discardIncomplete() }
+            runCatching { TrackingNotification.dropped(this, store.discardIncomplete(reason)) }
                 .onFailure {
                     android.util.Log.e("MmpGo", "Incomplete recordings left for the next cleanup", it)
                 }
@@ -349,7 +347,10 @@ class CaptureService : Service() {
         Tracking.manual = false
         if (active === this) active = null
         removeUpdates()
-        store.executor.execute { store.discardIncomplete() }
+        val context = applicationContext
+        store.executor.execute {
+            TrackingNotification.dropped(context, store.discardIncomplete(DropReason.STOPPED))
+        }
         super.onDestroy()
     }
 

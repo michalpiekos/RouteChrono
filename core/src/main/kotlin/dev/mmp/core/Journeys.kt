@@ -94,7 +94,22 @@ sealed interface TrackingEvent {
         val fix: Fix,
         val complete: Boolean,
         val endpoint: Int? = null,
+        val reason: DropReason? = null,
     ) : TrackingEvent
+}
+
+enum class DropReason {
+    ABANDONED,
+    GPS_GAP,
+    GPS_JUMP,
+    OTHER_END,
+    RETURNED,
+    PAUSED,
+    PAIRS_CHANGED,
+    MANUAL_STARTED,
+    EXITED,
+    STOPPED,
+    RESTARTED,
 }
 
 const val ENDPOINT_COOLDOWN_MS = 60_000L
@@ -108,6 +123,8 @@ class EndpointTracker(
     private val cooldownByEndpoint = cooldowns.associateBy { it.pairId to it.side }.toMutableMap()
     val cooldowns: List<EndpointCooldown>
         get() = cooldownByEndpoint.values.toList()
+
+    fun clearCooldowns() = cooldownByEndpoint.clear()
 
     private fun cooling(pairId: String, side: Int, monoMs: Long): Boolean {
         val arrival = cooldownByEndpoint[pairId to side]?.arrivedMonoMs ?: return false
@@ -131,7 +148,13 @@ class EndpointTracker(
         val origin = state.side!!
         val complete = if (origin == 0) inside != 0 else inside == 0
         val end = if (origin == 0) inside.takeIf { complete } else origin
-        events += TrackingEvent.Ended(state.journey!!, fix, complete, end.takeIf { pair.multiEnd })
+        val reason =
+            when {
+                complete -> null
+                inside == origin -> DropReason.RETURNED
+                else -> DropReason.OTHER_END
+            }
+        events += TrackingEvent.Ended(state.journey!!, fix, complete, end.takeIf { pair.multiEnd }, reason)
         if (origin != 0 && inside != 0 && inside != origin) {
             // Travel between ends is never measured; the reached end becomes the next origin.
             state.journey = null
@@ -161,7 +184,8 @@ class EndpointTracker(
                 distance(last.point, fix.point) / ((fix.monoMs - last.monoMs) / 1000.0) > 80
         if (last != null && (fix.monoMs - last.monoMs > GAP_MS || jump)) {
             states.values.forEach { s ->
-                s.journey?.let { events += TrackingEvent.Ended(it, last, false) }
+                val reason = if (jump) DropReason.GPS_JUMP else DropReason.GPS_GAP
+                s.journey?.let { events += TrackingEvent.Ended(it, last, false, reason = reason) }
                 s.side = null
                 s.anchor = null
                 s.journey = null

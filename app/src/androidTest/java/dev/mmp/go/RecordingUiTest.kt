@@ -63,6 +63,30 @@ class RecordingUiTest {
     }
 
     @Test
+    fun ongoingJourneysAreNamedOnlyWhileTrackingRuns() = withMap { activity, _, _ ->
+        val pair = PairRow.from(EndpointPair("p", "Home routes", Point(0.0, 0.0), Point(0.0, 0.01)))
+        val journey =
+            JourneyRow("live", pair.id, "return", "automatic", 100000, SystemClock.elapsedRealtime() - 65000)
+        set(activity, "pairs", listOf(pair))
+        set(activity, "journeys", listOf(journey))
+        val wasRunning = Tracking.running
+        try {
+            fun text(): String {
+                MainActivity::class.java.getDeclaredMethod("render").apply { isAccessible = true }.invoke(activity)
+                return (field("ongoingInfo").get(activity) as TextView).text.toString()
+            }
+            Tracking.running = true
+            val live = text()
+            assertTrue(live, live.startsWith("Ongoing journeys\n• Home routes (End → Start), started "))
+            assertTrue(live, live.matches(Regex("(?s).* · 1:0[5-6]")))
+            Tracking.running = false
+            assertEquals("No journey in progress", text())
+        } finally {
+            Tracking.running = wasRunning
+        }
+    }
+
+    @Test
     fun teachingRecordingZoomsOutByOneLevelAtViewportEdge() = withMap { activity, map, view ->
         val start = LatLng(52.0, 19.0)
         map.moveCamera(CameraUpdateFactory.newLatLngZoom(start, 16.0))
@@ -84,25 +108,31 @@ class RecordingUiTest {
 
     @Test
     fun pairEndpointsRemainVisibleAndConcurrentPairsDoNotLockFraming() = withMap { activity, map, view ->
-        val pair = EndpointPair("ui-pair", "Test pair", Point(52.0, 19.0), Point(52.0, 19.03))
-        val other = pair.copy(id = "ui-other", name = "Other pair", ends = listOf(Point(52.01, 19.0)))
-        set(activity, "pairs", listOf(PairRow.from(pair), PairRow.from(other)))
-        val journey = JourneyRow("ui-journey", pair.id, "outward", "automatic", 0, 0)
-        set(activity, "journeys", listOf(journey))
-        trace(activity, listOf(Fix(pair.start, 0, 0, 5.0), Fix(Point(52.0, 19.005), 10000, 10000, 5.0)))
-        map.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(52.0, 19.005), 16.0))
-        draw(activity, false)
-        assertVisible(map, view, pair.start)
-        assertVisible(map, view, pair.end)
-        assertTrue(map.markers.any { it.title == "Test pair · Start" })
-        assertTrue(map.markers.any { it.title == "Test pair · End" })
-        set(activity, "journeys", listOf(journey, journey.copy(id = "ui-journey-2", pairId = other.id)))
-        val start = LatLng(52.0, 19.0)
-        trace(activity, listOf(fix(start, 0)))
-        map.moveCamera(CameraUpdateFactory.newLatLngZoom(start, 16.0))
-        draw(activity, false)
-        assertEquals(16.0, map.cameraPosition.zoom, 0.001)
-        assertFalse(map.markers.any { it.title?.contains("pair ·") == true })
+        val wasRunning = Tracking.running
+        Tracking.running = true
+        try {
+            val pair = EndpointPair("ui-pair", "Test pair", Point(52.0, 19.0), Point(52.0, 19.03))
+            val other = pair.copy(id = "ui-other", name = "Other pair", ends = listOf(Point(52.01, 19.0)))
+            set(activity, "pairs", listOf(PairRow.from(pair), PairRow.from(other)))
+            val journey = JourneyRow("ui-journey", pair.id, "outward", "automatic", 0, 0)
+            set(activity, "journeys", listOf(journey))
+            trace(activity, listOf(Fix(pair.start, 0, 0, 5.0), Fix(Point(52.0, 19.005), 10000, 10000, 5.0)))
+            map.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(52.0, 19.005), 16.0))
+            draw(activity, false)
+            assertVisible(map, view, pair.start)
+            assertVisible(map, view, pair.end)
+            assertTrue(map.markers.any { it.title == "Test pair · Start" })
+            assertTrue(map.markers.any { it.title == "Test pair · End" })
+            set(activity, "journeys", listOf(journey, journey.copy(id = "ui-journey-2", pairId = other.id)))
+            val start = LatLng(52.0, 19.0)
+            trace(activity, listOf(fix(start, 0)))
+            map.moveCamera(CameraUpdateFactory.newLatLngZoom(start, 16.0))
+            draw(activity, false)
+            assertEquals(16.0, map.cameraPosition.zoom, 0.001)
+            assertFalse(map.markers.any { it.title?.contains("pair ·") == true })
+        } finally {
+            Tracking.running = wasRunning
+        }
     }
 
     @Test

@@ -2,7 +2,7 @@ plugins { id("com.android.application"); kotlin("android"); kotlin("kapt") }
 android {
     namespace = "dev.mmp.go"
     compileSdk = 36
-    defaultConfig { applicationId = "dev.mmp.go"; minSdk = 26; targetSdk = 36; versionCode = 12; versionName = "0.12.0"; testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner" }
+    defaultConfig { applicationId = "dev.mmp.go"; minSdk = 26; targetSdk = 36; versionCode = 13; versionName = "0.13.0"; testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner" }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
     signingConfigs.getByName("debug") { storeFile = File(gradle.gradleUserHomeDir, "mmp-go/debug.keystore") }

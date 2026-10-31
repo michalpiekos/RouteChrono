@@ -9,6 +9,7 @@ import android.os.Looper
 import androidx.core.content.ContextCompat
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
+import dev.mmp.core.DropReason
 
 object Tracking {
     fun prefs(c: Context) = c.getSharedPreferences("journey_tracking", Context.MODE_PRIVATE)
@@ -97,12 +98,14 @@ object Tracking {
                 done()
             }
             val service = CaptureService.active
-            if (service != null) service.shutdown(finish)
+            if (service != null) service.shutdown(DropReason.EXITED, finish)
             else {
                 context.stopService(Intent(context, CaptureService::class.java))
                 val store = Store.get(context)
                 store.executor.execute {
-                    runCatching { store.discardIncomplete() }
+                    runCatching {
+                        TrackingNotification.dropped(context, store.discardIncomplete(DropReason.EXITED))
+                    }
                         .onFailure {
                             android.util.Log.e(
                                 "MmpGo",

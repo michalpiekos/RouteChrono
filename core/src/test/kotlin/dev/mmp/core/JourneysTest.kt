@@ -69,7 +69,9 @@ class JourneysTest {
     @Test
     fun gapInterruptsAndDoesNotInventArrival() {
         val events = run(listOf(f(0.0, 0), f(0.001, 10000), f(0.01, 80000)))
-        assertFalse(events.filterIsInstance<TrackingEvent.Ended>().single().complete)
+        val end = events.filterIsInstance<TrackingEvent.Ended>().single()
+        assertFalse(end.complete)
+        assertEquals(DropReason.GPS_GAP, end.reason)
     }
 
     @Test
@@ -100,8 +102,8 @@ class JourneysTest {
         val events =
             run(listOf(f(0.0, 0), f(0.001, 10000), f(0.0, 20000), f(0.0, 40000), f(0.0, 60000), f(0.0, 80000), f(0.001, 90000), f(0.01, 110000)))
         assertEquals(
-            listOf(false, true),
-            events.filterIsInstance<TrackingEvent.Ended>().map { it.complete },
+            listOf(DropReason.RETURNED, null),
+            events.filterIsInstance<TrackingEvent.Ended>().map { it.reason },
         )
     }
 
@@ -141,7 +143,9 @@ class JourneysTest {
     @Test
     fun impossibleJumpCannotCompleteATrip() {
         val events = run(listOf(f(0.0, 0), f(0.001, 10000), f(0.01, 11000)))
-        assertFalse(events.filterIsInstance<TrackingEvent.Ended>().single().complete)
+        val end = events.filterIsInstance<TrackingEvent.Ended>().single()
+        assertFalse(end.complete)
+        assertEquals(DropReason.GPS_JUMP, end.reason)
     }
 
     @Test
@@ -189,6 +193,15 @@ class JourneysTest {
         assertTrue(original.feed(f(0.009, 85000)).isEmpty())
         assertTrue(restored.feed(f(0.01, 90000).copy(wallMs = -500000)).isEmpty())
         assertEquals(1, restored.feed(f(0.009, 95000)).filterIsInstance<TrackingEvent.Started>().size)
+    }
+
+    @Test
+    fun clearedCooldownLetsTripStartImmediately() {
+        val engine = EndpointTracker(listOf(pair), listOf(EndpointCooldown(pair.id, 1, 30000)))
+        engine.clearCooldowns()
+        assertTrue(engine.cooldowns.isEmpty())
+        assertTrue(engine.feed(f(0.01, 40000)).isEmpty())
+        assertEquals(1, engine.feed(f(0.009, 50000)).filterIsInstance<TrackingEvent.Started>().size)
     }
 
     @Test
@@ -281,6 +294,10 @@ class JourneysTest {
             )
         assertEquals(listOf(true to 2, true to 1), started(events))
         assertEquals(listOf(false to 2, true to 1), ended(events))
+        assertEquals(
+            listOf(DropReason.OTHER_END, null),
+            events.filterIsInstance<TrackingEvent.Ended>().map { it.reason },
+        )
         assertEquals(30000L, events.filterIsInstance<TrackingEvent.Started>().last().fix.monoMs)
     }
 

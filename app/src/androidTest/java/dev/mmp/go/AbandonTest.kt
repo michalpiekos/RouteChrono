@@ -30,7 +30,7 @@ class AbandonTest {
             val tracker = EndpointTracker(listOf(pair, longer))
             val events =
                 listOf(fix(0.0, 0), fix(0.001, 10000), fix(-0.005, 20000), fix(-0.0151, 35000))
-                    .flatMap { tracker.feed(it).also(store::accept) }
+                    .flatMap { tracker.feed(it).also { e -> store.accept(e) } }
             val gone = events.filterIsInstance<TrackingEvent.Abandoned>().single()
             assertEquals(pair.id, gone.pair.id)
             assertNull(store.dao.journey(gone.id))
@@ -49,30 +49,36 @@ class AbandonTest {
     }
 
     @Test
-    fun abandonNotificationIsSeparateAndDismissible() {
+    fun dropNotificationNamesJourneyAndReasonAndIsDismissible() {
         val manager = context.getSystemService(NotificationManager::class.java)
-        val tag = "abandon-test-${newId()}"
+        val pair = PairRow.from(EndpointPair("p", "Home routes", Point(0.0, 0.0), Point(0.0, 0.01), Point(0.01, 0.0)))
+        val journey = JourneyRow("abandon-test-${newId()}", pair.id, "return", "automatic", 100000, 0, endpoint = 2)
+        val tag = journey.id
         TrackingNotification.createChannel(context)
         try {
-            TrackingNotification.abandoned(context, tag, TrackingNotification.abandonedMessage("Home routes"))
+            val drop = DroppedJourney(journey, pair, DropReason.ABANDONED)
+            TrackingNotification.dropped(context, tag, TrackingNotification.droppedMessage(drop))
             val posted =
                 manager.activeNotifications.single {
-                    it.tag == tag && it.id == TrackingNotification.ABANDONED_ID
+                    it.tag == tag && it.id == TrackingNotification.DROPPED_ID
                 }
             val notification = posted.notification
             assertEquals(
-                "Route Chrono • Trip abandoned",
+                "Route Chrono • Journey dropped",
                 notification.extras.getString(Notification.EXTRA_TITLE),
             )
             assertTrue(
-                notification.extras.getString(Notification.EXTRA_TEXT)!!.startsWith("Home routes: moved over 50% farther")
+                notification.extras.getString(Notification.EXTRA_TEXT)!!.let {
+                    it.startsWith("Home routes (End 2 → Start), started ") &&
+                        it.contains(": dropped because it moved over 50% farther")
+                }
             )
             assertEquals(TrackingNotification.CHANNEL, notification.channelId)
             assertEquals(0, notification.flags and Notification.FLAG_ONGOING_EVENT)
             assertNotEquals(0, notification.flags and Notification.FLAG_AUTO_CANCEL)
             assertFalse(TrackingNotification.visible(context))
         } finally {
-            manager.cancel(tag, TrackingNotification.ABANDONED_ID)
+            manager.cancel(tag, TrackingNotification.DROPPED_ID)
         }
     }
 }

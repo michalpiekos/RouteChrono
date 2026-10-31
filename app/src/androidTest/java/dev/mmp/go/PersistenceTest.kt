@@ -280,7 +280,9 @@ class PersistenceTest {
             store.dao.point(TrackRow.from(status, fix(0.001, 1000)))
         }
         val keptPoints = store.dao.points(kept.id)
-        store.discardIncomplete()
+        val dropped = store.discardIncomplete(DropReason.RESTARTED)
+        assertEquals(listOf("recording" to DropReason.RESTARTED), dropped.map { it.journey.id to it.reason })
+        assertEquals(pair, dropped.single().pair)
         assertEquals(listOf(kept), store.dao.journeys())
         assertEquals(keptPoints, store.dao.points(kept.id))
         listOf("recording", "interrupted", "no GPS").forEach { assertTrue(store.dao.points(it).isEmpty()) }
@@ -295,21 +297,40 @@ class PersistenceTest {
         store.dao.pair(PairRow.from(fork))
         val gap = EndpointTracker(listOf(pair))
         val started = mutableListOf<String>()
+        val dropped = mutableListOf<DroppedJourney>()
         listOf(fix(0.0, 0), fix(0.001, 10000), fix(0.003, 50000)).forEach { f ->
             val events = gap.feed(f)
             started += events.filterIsInstance<TrackingEvent.Started>().map { it.id }
-            store.accept(events)
+            dropped += store.accept(events)
         }
         val hop = EndpointTracker(listOf(fork))
         listOf(fix(0.01, 0, 1.0), fix(0.009, 10000, 1.001), fix(0.005, 20000, 1.005), fix(0.0, 30000, 1.01))
             .forEach { f ->
                 val events = hop.feed(f)
                 started += events.filterIsInstance<TrackingEvent.Started>().map { it.id }
-                store.accept(events)
+                dropped += store.accept(events)
             }
         assertEquals(2, started.size)
+        assertEquals(started, dropped.map { it.journey.id })
+        assertEquals(listOf(DropReason.GPS_GAP, DropReason.OTHER_END), dropped.map { it.reason })
+        assertEquals(listOf("Test", "Fork"), dropped.map { it.pair?.name })
         assertTrue(store.dao.journeys().isEmpty())
         started.forEach { assertTrue(store.dao.points(it).isEmpty()) }
+    }
+
+    @Test
+    fun dropAutomaticKeepsManualRecording() = withStore { store, _ ->
+        val pair = PairRow.from(EndpointPair("p", "Test", Point(0.0, 0.0), Point(0.0, 0.01)))
+        store.dao.pair(pair)
+        store.dao.journey(JourneyRow("auto", pair.id, "return", "automatic", 100000, 0))
+        store.dao.journey(JourneyRow("manual", null, "outward", "manual", 100000, 0))
+        val dropped = store.dropAutomatic(DropReason.PAUSED)
+        assertEquals(listOf("auto"), dropped.map { it.journey.id })
+        assertEquals(listOf("manual"), store.dao.journeys().map { it.id })
+        assertTrue(
+            TrackingNotification.droppedMessage(dropped.single())
+                .matches(Regex("Test \\(End → Start\\), started .+: dropped because automatic recording was turned off\\. Nothing was saved\\."))
+        )
     }
 
     @Test

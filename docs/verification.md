@@ -1,3 +1,14 @@
+# Verification — 2026-10-31 (0.13.0)
+
+Route Chrono 0.13.0 checks of ongoing-journey display, drop notifications and the cooldown reset, on a Motorola edge 30 ultra, Android 15/API 35:
+
+- Docker JVM tests (including drop reasons for GPS gap, GPS jump, return to origin and end-to-end hop, and clearing cooldowns), debug and instrumentation APK builds passed. Lint: 0 errors, 19 existing warnings.
+- Updated 0.12.0 in place. Full phone instrumentation: `OK (39 tests)`, 12.3 s. New or updated isolated tests cover the dropped journey's pair and reason, pausing dropping only automatic journeys, the message wording, the "Journey dropped" notification, and the Record list naming an ongoing journey only while tracking runs.
+- Every production database table was identical before and after (12 complete journeys, 7,605 points, 7 pairs) and preference files were byte-identical. No tracking service was left running.
+- APK SHA-256: `bc00459fc766fbc9e278effdb2c44087c07dc887e93cd22514cf35fba08dd702`.
+
+**Not tested on 0.13.0:** a real drive producing each drop reason, the live notification shade and Record tab inspected by hand, turning Automatic recording off and on at an endpoint during its cooldown, other devices or Android versions. Private evidence is kept in the ignored `captures/drop-reasons/` folder.
+
 # Verification — 2026-10-30 (0.12.0)
 
 Route Chrono 0.12.0 checks of keeping only complete journeys, on a Motorola edge 30 ultra, Android 15/API 35:

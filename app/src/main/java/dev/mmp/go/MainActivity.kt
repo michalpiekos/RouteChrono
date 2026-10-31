@@ -58,6 +58,7 @@ class MainActivity : Activity() {
     private var startButton: Button? = null
     private var stopButton: Button? = null
     private var recordInfo: TextView? = null
+    private var ongoingInfo: TextView? = null
     private var autoSwitch: ToggleButton? = null
     private lateinit var chrome: LinearLayout
     private var displayedActivity: RecordingAppearanceState? = null
@@ -272,11 +273,12 @@ class MainActivity : Activity() {
         store.reader.execute {
             val ps = store.dao.pairs()
             val js = store.dao.journeys()
+            val running = Tracking.running
             val id =
                 detail
-                    ?: if (page == "Record") js.firstOrNull { it.status == "recording" }?.id
+                    ?: if (page == "Record" && running) js.firstOrNull { it.status == "recording" }?.id
                     else null
-            val live = if (page == "Record") js.filter { it.status == "recording" }
+            val live = if (page == "Record" && running) js.filter { it.status == "recording" }
                 .map { store.dao.points(it.id).map(TrackRow::fix) } else emptyList()
             val fs = if (page == "Record") live.firstOrNull() ?: emptyList()
                 else id?.let { store.dao.points(it).map(TrackRow::fix) } ?: emptyList()
@@ -316,6 +318,7 @@ class MainActivity : Activity() {
         stopButton = null
         autoSwitch = null
         recordInfo = null
+        ongoingInfo = null
         when (tab) {
             "Record" -> recordPage()
             "Pairs" -> pairsPage()
@@ -325,8 +328,15 @@ class MainActivity : Activity() {
     }
 
     private fun updateStatus() {
+        val ongoing = ongoingJourneys()
         val activity = recordingAppearanceState(Tracking.running, Tracking.enabled(this), Tracking.manual,
-            journeys.any { it.status == "recording" })
+            ongoing.isNotEmpty())
+        ongoingInfo?.text =
+            if (ongoing.isEmpty()) "No journey in progress"
+            else ongoing.joinToString("\n", "Ongoing journeys\n") {
+                "• ${journeyLabel(pairs.firstOrNull { p -> p.id == it.pairId }, it)} · " +
+                    duration(SystemClock.elapsedRealtime() - it.startMono)
+            }
         val waiting = Tracking.running &&
             (Tracking.lastFixAt == 0L || SystemClock.elapsedRealtime() - Tracking.lastFixAt > 15000)
         val mode = when (activity) {
@@ -409,6 +419,7 @@ class MainActivity : Activity() {
                     800,
                 )
             }
+        ongoingInfo = label(body, "", 16f)
         recordInfo = label(body, "", 16f)
         label(
             body,
@@ -741,7 +752,7 @@ class MainActivity : Activity() {
         }
         val livePair = if (tab == "Record") recordingPair(
             pairs.filter { !it.archived }.map { it.spec() },
-            journeys.filter { it.status == "recording" && it.source == "automatic" }.mapNotNull { it.pairId },
+            ongoingJourneys().filter { it.source == "automatic" }.mapNotNull { it.pairId },
         ) else null
         if (tab == "Pairs" && editing) {
             draftStart?.let { marker(it, "Start") }
@@ -1022,6 +1033,9 @@ class MainActivity : Activity() {
         draftEnds = mutableListOf(null)
         draftName = ""
     }
+
+    private fun ongoingJourneys() =
+        if (Tracking.running) journeys.filter { it.status == "recording" }.reversed() else emptyList()
 
     private fun direction(j: JourneyRow): String {
         val end =

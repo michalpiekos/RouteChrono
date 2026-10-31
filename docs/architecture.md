@@ -10,7 +10,7 @@ Android foreground GPS service → endpoint trip detector
                                   maps and summaries
 ```
 
-The native Android app owns the map, recording controls, foreground location service and Room persistence. A small Kotlin/JVM core recognizes departures and arrivals in both directions (or, for a route with up to five ends, between the start and any end), and abandons trips that stray too far from their origin and calculates trace segments, distances and timing summaries. Recognition depends on endpoints, not on a predefined route. Multiple pairs have independent state.
+The native Android app owns the map, recording controls, foreground location service and Room persistence. A small Kotlin/JVM core recognizes departures and arrivals in both directions (or, for a route with up to five ends, between the start and any end), abandons trips that stray too far from their origin, reports why an unfinished trip was dropped, and calculates trace segments, distances and timing summaries. Recognition depends on endpoints, not on a predefined route. Multiple pairs have independent state.
 
 Location and database mutations run serially. UI history reads use a separate executor. Every accepted recording point is persisted as it arrives; only complete journeys are kept: incomplete ones, including recordings left open by Exit or a process restart, are deleted with their points. Monotonic timestamps determine elapsed times, while wall-clock timestamps label recordings. There is no backend or cloud backup.
 

@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
 import com.google.android.gms.location.LocationServices
+import dev.mmp.core.DropReason
 import okhttp3.OkHttpClient
 import org.maplibre.android.MapLibre
 import org.maplibre.android.module.http.HttpRequestUtil
@@ -43,6 +44,11 @@ class App : Application() {
                 pending.cancel()
             }
         }
-        Store.get(this).let { s -> s.executor.execute { s.discardIncomplete() } }
+        TrackingNotification.createChannel(this)
+        Store.get(this).let { s ->
+            s.executor.execute {
+                TrackingNotification.dropped(this, s.discardIncomplete(DropReason.RESTARTED))
+            }
+        }
     }
 }
