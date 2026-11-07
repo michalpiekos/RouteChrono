@@ -68,10 +68,16 @@ class JourneysTest {
 
     @Test
     fun gapInterruptsAndDoesNotInventArrival() {
-        val events = run(listOf(f(0.0, 0), f(0.001, 10000), f(0.01, 80000)))
+        val events = run(listOf(f(0.0, 0), f(0.001, 10000), f(0.01, 130001)))
         val end = events.filterIsInstance<TrackingEvent.Ended>().single()
         assertFalse(end.complete)
         assertEquals(DropReason.GPS_GAP, end.reason)
+    }
+
+    @Test
+    fun gapOfTwoMinutesKeepsTheJourney() {
+        val events = run(listOf(f(0.0, 0), f(0.001, 10000), f(0.01, 130000)))
+        assertEquals(listOf(true to null), ended(events))
     }
 
     @Test
@@ -135,7 +141,7 @@ class JourneysTest {
     @Test
     fun traceGapsAndTeleportsAreNotDrawnOrCounted() {
         val points =
-            listOf(f(0.0, 0), f(0.001, 10000), f(0.1, 100000), f(0.101, 110000), f(1.0, 111000))
+            listOf(f(0.0, 0), f(0.001, 10000), f(0.1, 500000), f(0.101, 510000), f(1.0, 511000))
         assertEquals(3, segments(points).size)
         assertEquals(222.39, routeDistance(points), 1.0)
     }

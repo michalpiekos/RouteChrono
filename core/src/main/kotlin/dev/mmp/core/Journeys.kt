@@ -72,7 +72,7 @@ fun distance(a: Point, b: Point): Double {
 
 fun usable(f: Fix) = validPoint(f.point) && f.accuracy.isFinite() && f.accuracy in 0.0..35.0
 
-const val GAP_MS = 30_000L
+const val GAP_MS = 120_000L
 
 const val ABANDON_FACTOR = 1.5
 

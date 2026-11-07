@@ -298,7 +298,7 @@ class PersistenceTest {
         val gap = EndpointTracker(listOf(pair))
         val started = mutableListOf<String>()
         val dropped = mutableListOf<DroppedJourney>()
-        listOf(fix(0.0, 0), fix(0.001, 10000), fix(0.003, 50000)).forEach { f ->
+        listOf(fix(0.0, 0), fix(0.001, 10000), fix(0.003, 140000)).forEach { f ->
             val events = gap.feed(f)
             started += events.filterIsInstance<TrackingEvent.Started>().map { it.id }
             dropped += store.accept(events)
@@ -336,10 +336,10 @@ class PersistenceTest {
     @Test
     fun incompleteManualRecordingIsDiscardedButStillTeaches() = withStore { store, _ ->
         store.dao.journey(JourneyRow("gap", null, "outward", "manual", 100000, 0))
-        listOf(fix(0.0, 0), fix(0.002, 10000), fix(0.006, 50000), fix(0.01, 60000)).forEach {
+        listOf(fix(0.0, 0), fix(0.002, 10000), fix(0.006, 150000), fix(0.01, 160000)).forEach {
             store.dao.point(TrackRow.from("gap", it))
         }
-        assertEquals(ManualResult(false, true), store.finishManual("gap", 160000, 60000))
+        assertEquals(ManualResult(false, true), store.finishManual("gap", 260000, 160000))
         assertNull(store.dao.journey("gap"))
         assertTrue(store.dao.points("gap").isEmpty())
         assertEquals(1, store.dao.pairs().size)

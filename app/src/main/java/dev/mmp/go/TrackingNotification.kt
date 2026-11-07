@@ -58,7 +58,7 @@ object TrackingNotification {
     fun reasonText(reason: DropReason) =
         when (reason) {
             DropReason.ABANDONED -> "it moved over 50% farther than the endpoint distance"
-            DropReason.GPS_GAP -> "GPS was lost for over 30 s"
+            DropReason.GPS_GAP -> "GPS was lost for over 2 min"
             DropReason.GPS_JUMP -> "the GPS position jumped implausibly far"
             DropReason.OTHER_END -> "it reached another end instead of the start"
             DropReason.RETURNED -> "it came back to where it started"

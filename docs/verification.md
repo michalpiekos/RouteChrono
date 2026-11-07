@@ -1,3 +1,14 @@
+# Verification — 2026-11-07 (0.14.0)
+
+Route Chrono 0.14.0 checks of the 2-minute GPS gap limit, on a Motorola edge 30 ultra, Android 15/API 35:
+
+- Docker JVM tests (including a journey kept through a gap of exactly 2 minutes, and dropped just over it), debug and instrumentation APK builds passed. Lint: 0 errors, 19 existing warnings.
+- Updated 0.13.0 in place. Full phone instrumentation: `OK (39 tests)`, 13.8 s. Updated isolated tests cover a dropped journey and an unsaved manual recording with gaps over 2 minutes.
+- Every production database table was identical before and after (20 journeys, 10,555 points, 7 pairs) and preference files were byte-identical. No tracking service was left running.
+- APK SHA-256: `bd1710de167e3b373ad6dfc35735a949ac79a90878929eca5de5e25e244fc5cc`.
+
+**Not tested on 0.14.0:** a real drive through a GPS gap, a manual recording with a gap under 2 minutes saved on the phone, the new notification wording in the live shade, other devices or Android versions. Private evidence is kept in the ignored `captures/gps-gap/` folder.
+
 # Verification — 2026-10-31 (0.13.0)
 
 Route Chrono 0.13.0 checks of ongoing-journey display, drop notifications and the cooldown reset, on a Motorola edge 30 ultra, Android 15/API 35:
